@@ -27,40 +27,39 @@ const difficulties = ['All Difficulties', 'easy', 'medium', 'hard'];
 const QuizFilter: React.FC<QuizFilterProps> = ({ onFilterChange }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [filter, setFilter] = useState<QuizFilterType>({});
-  
+
   const handleFilterChange = (
-    key: keyof QuizFilterType, 
+    key: keyof QuizFilterType,
     value: string
   ) => {
-    const newFilter = { ...filter };
-    
-    if (value.startsWith('All') || value === '') {
-      delete newFilter[key];
+    const updatedFilter = { ...filter };
+
+    if (value.startsWith('All')) {
+      delete updatedFilter[key];
     } else {
-      // Properly type the filter value based on the key
       if (key === 'difficulty') {
-        newFilter[key] = value as 'easy' | 'medium' | 'hard';
+        updatedFilter[key] = value as 'easy' | 'medium' | 'hard';
       } else {
-        newFilter[key] = value;
+        updatedFilter[key] = value;
       }
     }
-    
-    setFilter(newFilter);
+
+    setFilter(updatedFilter);
   };
-  
+
   const applyFilter = () => {
     onFilterChange(filter);
     setIsOpen(false);
   };
-  
+
   const resetFilter = () => {
     setFilter({});
     onFilterChange({});
     setIsOpen(false);
   };
-  
+
   const activeFilterCount = Object.keys(filter).length;
-  
+
   return (
     <div className="mb-6">
       <div className="flex items-center justify-between">
@@ -78,7 +77,7 @@ const QuizFilter: React.FC<QuizFilterProps> = ({ onFilterChange }) => {
             </span>
           )}
         </Button>
-        
+
         {activeFilterCount > 0 && (
           <Button
             variant="ghost"
@@ -91,7 +90,7 @@ const QuizFilter: React.FC<QuizFilterProps> = ({ onFilterChange }) => {
           </Button>
         )}
       </div>
-      
+
       {isOpen && (
         <div className="mt-4 p-4 bg-white rounded-lg shadow-lg border border-slate-200">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -104,14 +103,14 @@ const QuizFilter: React.FC<QuizFilterProps> = ({ onFilterChange }) => {
                 value={filter.category || 'All Categories'}
                 onChange={(e) => handleFilterChange('category', e.target.value)}
               >
-                {categories.map((category) => (
-                  <option key={category} value={category}>
-                    {category}
+                {categories.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
                   </option>
                 ))}
               </select>
             </div>
-            
+
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">
                 Country
@@ -128,7 +127,7 @@ const QuizFilter: React.FC<QuizFilterProps> = ({ onFilterChange }) => {
                 ))}
               </select>
             </div>
-            
+
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">
                 Event
@@ -145,7 +144,7 @@ const QuizFilter: React.FC<QuizFilterProps> = ({ onFilterChange }) => {
                 ))}
               </select>
             </div>
-            
+
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">
                 Difficulty
@@ -153,32 +152,24 @@ const QuizFilter: React.FC<QuizFilterProps> = ({ onFilterChange }) => {
               <select
                 className="w-full rounded-md border border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm"
                 value={filter.difficulty || 'All Difficulties'}
-                onChange={(e) => handleFilterChange('difficulty', e.target.value as any)}
+                onChange={(e) => handleFilterChange('difficulty', e.target.value)}
               >
-                {difficulties.map((difficulty) => (
-                  <option key={difficulty} value={difficulty}>
-                    {difficulty === 'All Difficulties' 
-                      ? difficulty 
-                      : difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}
+                {difficulties.map((level) => (
+                  <option key={level} value={level}>
+                    {level === 'All Difficulties'
+                      ? level
+                      : level.charAt(0).toUpperCase() + level.slice(1)}
                   </option>
                 ))}
               </select>
             </div>
           </div>
-          
+
           <div className="mt-4 flex justify-end space-x-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsOpen(false)}
-            >
+            <Button variant="outline" size="sm" onClick={() => setIsOpen(false)}>
               Cancel
             </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={applyFilter}
-            >
+            <Button variant="primary" size="sm" onClick={applyFilter}>
               Apply Filters
             </Button>
           </div>

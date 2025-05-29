@@ -7,10 +7,10 @@ import { useAuthStore } from '../store/authStore';
 const AdminPage: React.FC = () => {
   const navigate = useNavigate();
   const { user, isInitialized } = useAuthStore();
-  
+
   useEffect(() => {
     if (isInitialized) {
-      // Redirect if not logged in or not admin
+      // 🛡️ Redirect if not logged in or not admin
       if (!user) {
         navigate('/login');
       } else if (!user.isAdmin) {
@@ -18,13 +18,13 @@ const AdminPage: React.FC = () => {
       }
     }
   }, [isInitialized, user, navigate]);
-  
-  if (!user?.isAdmin) {
-    return null;
-  }
-  
+
+  // ✅ Protect against flicker
+  if (!user?.isAdmin) return null;
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* 👤 Header */}
       <div className="mb-8 flex items-center">
         <Shield className="h-8 w-8 text-sky-500 mr-3" />
         <div>
@@ -34,7 +34,8 @@ const AdminPage: React.FC = () => {
           </p>
         </div>
       </div>
-      
+
+      {/* 🧠 Manual Quiz Form for Admins */}
       <div className="bg-white shadow-sm rounded-lg p-6 mb-8">
         <h2 className="text-xl font-semibold text-slate-800 mb-4">Create New Quiz</h2>
         <QuizForm />

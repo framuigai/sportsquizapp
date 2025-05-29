@@ -11,9 +11,9 @@ import { QuizAttempt } from '../types';
 const QuizPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { currentQuiz, loading, error, fetchQuizById, saveQuizAttempt } = useQuizStore();
+  const { currentQuiz, loading, error, fetchQuizById } = useQuizStore();
   const { user, isInitialized } = useAuthStore();
-  
+
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<Array<{
     questionId: string;
@@ -23,53 +23,45 @@ const QuizPage: React.FC = () => {
   const [quizCompleted, setQuizCompleted] = useState(false);
   const [quizStartTime, setQuizStartTime] = useState(Date.now());
   const [quizAttempt, setQuizAttempt] = useState<QuizAttempt | null>(null);
-  
-  // Fetch quiz on component mount
+
   useEffect(() => {
     if (id) {
-      fetchQuizById(id);
+      fetchQuizById(id); // still uses locally saved quizzes
       setQuizStartTime(Date.now());
     }
   }, [id, fetchQuizById]);
-  
-  // Redirect to login if not authenticated
+
   useEffect(() => {
     if (isInitialized && !user) {
       navigate('/login');
     }
   }, [isInitialized, user, navigate]);
-  
+
   const handleAnswer = (answer: string | boolean, isCorrect: boolean) => {
     if (!currentQuiz) return;
-    
+
     const question = currentQuiz.questions[currentQuestionIndex];
-    
-    // Record answer
+
     const newAnswers = [...answers, {
       questionId: question.id,
       userAnswer: answer,
       isCorrect,
     }];
     setAnswers(newAnswers);
-    
-    // Move to next question or complete quiz
+
     if (currentQuestionIndex < currentQuiz.questions.length - 1) {
       setCurrentQuestionIndex(currentQuestionIndex + 1);
     } else {
       completeQuiz(newAnswers);
     }
   };
-  
+
   const completeQuiz = async (finalAnswers: typeof answers) => {
     if (!currentQuiz || !user) return;
-    
-    // Calculate score
-    const score = finalAnswers.filter(answer => answer.isCorrect).length;
-    
-    // Calculate time spent
+
+    const score = finalAnswers.filter(ans => ans.isCorrect).length;
     const timeSpent = Math.round((Date.now() - quizStartTime) / 1000);
-    
-    // Create attempt object
+
     const attempt: Omit<QuizAttempt, 'id'> = {
       quizId: currentQuiz.id,
       userId: user.id,
@@ -79,19 +71,15 @@ const QuizPage: React.FC = () => {
       completedAt: Date.now(),
       timeSpent,
     };
-    
-    // Save attempt
-    const attemptId = await saveQuizAttempt(attempt);
-    
+
+    const attemptId = await useQuizStore.getState().saveQuizAttempt(attempt);
+
     if (attemptId) {
-      setQuizAttempt({
-        id: attemptId,
-        ...attempt,
-      });
+      setQuizAttempt({ id: attemptId, ...attempt });
       setQuizCompleted(true);
     }
   };
-  
+
   if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
@@ -99,7 +87,7 @@ const QuizPage: React.FC = () => {
       </div>
     );
   }
-  
+
   if (error || !currentQuiz) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
@@ -111,21 +99,18 @@ const QuizPage: React.FC = () => {
           </div>
         </div>
         <div className="mt-4 flex justify-center">
-          <Button
-            variant="outline"
-            onClick={() => navigate('/quizzes')}
-          >
+          <Button variant="outline" onClick={() => navigate('/quizzes')}>
             Back to Quizzes
           </Button>
         </div>
       </div>
     );
   }
-  
+
   if (quizCompleted && quizAttempt) {
     return <QuizResult attempt={quizAttempt} quizTitle={currentQuiz.title} />;
   }
-  
+
   return (
     <div className="max-w-4xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
       <div className="mb-6">
@@ -142,7 +127,7 @@ const QuizPage: React.FC = () => {
           <span className="capitalize">{currentQuiz.difficulty} difficulty</span>
         </div>
       </div>
-      
+
       {currentQuiz.questions.length > 0 && (
         <QuizQuestion
           question={currentQuiz.questions[currentQuestionIndex]}

@@ -1,3 +1,5 @@
+// types/index.ts
+
 export type User = {
   id: string;
   email: string;
@@ -43,6 +45,7 @@ export type QuizAttempt = {
 };
 
 export type QuizFilter = {
+  title?: string;
   category?: string;
   team?: string;
   country?: string;
@@ -53,5 +56,5 @@ export type QuizFilter = {
 export type Category = {
   id: string;
   name: string;
-  icon?: string; // Can be used for Lucide icon name
+  icon?: string; // Optional Lucide icon
 };
