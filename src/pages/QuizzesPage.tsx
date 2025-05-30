@@ -7,32 +7,38 @@ import { useQuizStore } from '../store/quizStore';
 import { Quiz, QuizFilter as QuizFilterType } from '../types';
 
 const QuizzesPage: React.FC = () => {
-  const { quizzes, loading, error, fetchQuizzes, generateQuiz, saveQuiz } = useQuizStore();
+  // Destructure fetchQuizzes from useQuizStore
+  const { quizzes, loading, error, fetchQuizzes, generateQuiz } = useQuizStore(); // Removed saveQuiz as generateQuiz now calls fetchQuizzes internally
   const [filter, setFilter] = useState<QuizFilterType>({});
   const [generating, setGenerating] = useState(false);
 
+  // Initial fetch of quizzes on component mount
   useEffect(() => {
     fetchQuizzes();
-  }, [fetchQuizzes]);
+  }, [fetchQuizzes]); // Dependency array to re-run if fetchQuizzes reference changes (though it shouldn't)
 
   const handleFilterChange = (newFilter: QuizFilterType) => {
     setFilter(newFilter);
-    fetchQuizzes(newFilter);
+    fetchQuizzes(newFilter); // Pass the new filter to fetchQuizzes
   };
 
   const handleGenerateQuiz = async () => {
     setGenerating(true);
     try {
-      const generated = await generateQuiz(filter);
-      const newQuiz: Quiz = {
-        ...generated,
-        id: Math.random().toString(36).substring(2, 10), // Temp ID (replace with Firestore ID if saving)
-        createdBy: 'AI',
-        createdAt: Date.now(),
-      };
-      await saveQuiz(newQuiz);
-    } catch (err) {
+      // generateQuiz now directly saves to Firestore and refetches the list internally
+      await generateQuiz(filter);
+      // Removed the manual saveQuiz and temporary ID generation here
+      // const newQuiz: Quiz = {
+      //   ...generated,
+      //   id: Math.random().toString(36).substring(2, 10), // Temp ID (replace with Firestore ID if saving)
+      //   createdBy: 'AI',
+      //   createdAt: Date.now(),
+      // };
+      // await saveQuiz(newQuiz);
+    } catch (err: any) { // Type 'any' for the error
       console.error('Failed to generate quiz:', err);
+      // Optionally, set a local error state here if you want to display it
+      // setLocalError(err.message || 'Failed to generate quiz');
     } finally {
       setGenerating(false);
     }
@@ -76,7 +82,7 @@ const QuizzesPage: React.FC = () => {
           <p className="text-slate-500">
             {Object.keys(filter).length > 0
               ? "Try changing your filters or generate a new quiz."
-              : "There are no quizzes available at the moment."}
+              : "There are no quizzes available at the moment. Generate one!"}
           </p>
         </div>
       ) : (

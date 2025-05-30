@@ -11,7 +11,8 @@ import { QuizAttempt } from '../types';
 const QuizPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { currentQuiz, loading, error, fetchQuizById } = useQuizStore();
+  // Ensure fetchQuizById is destructured
+  const { currentQuiz, loading, error, fetchQuizById, saveQuizAttempt } = useQuizStore(); // Added saveQuizAttempt for direct access
   const { user, isInitialized } = useAuthStore();
 
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -26,16 +27,17 @@ const QuizPage: React.FC = () => {
 
   useEffect(() => {
     if (id) {
-      fetchQuizById(id); // still uses locally saved quizzes
-      setQuizStartTime(Date.now());
+      fetchQuizById(id);
+      setQuizStartTime(Date.now()); // Set start time when quiz is fetched/ID changes
     }
-  }, [id, fetchQuizById]);
+  }, [id, fetchQuizById]); // Depend on id and fetchQuizById
 
   useEffect(() => {
+    // Only navigate to login if user is not initialized AND no user is found
     if (isInitialized && !user) {
       navigate('/login');
     }
-  }, [isInitialized, user, navigate]);
+  }, [isInitialized, user, navigate]); // Depend on isInitialized, user, navigate
 
   const handleAnswer = (answer: string | boolean, isCorrect: boolean) => {
     if (!currentQuiz) return;
@@ -49,15 +51,19 @@ const QuizPage: React.FC = () => {
     }];
     setAnswers(newAnswers);
 
+    // Check if it's the last question BEFORE incrementing index
     if (currentQuestionIndex < currentQuiz.questions.length - 1) {
       setCurrentQuestionIndex(currentQuestionIndex + 1);
     } else {
-      completeQuiz(newAnswers);
+      completeQuiz(newAnswers); // Pass newAnswers directly
     }
   };
 
-  const completeQuiz = async (finalAnswers: typeof answers) => {
-    if (!currentQuiz || !user) return;
+  const completeQuiz = async (finalAnswers: typeof answers) => { // Accept finalAnswers as an argument
+    if (!currentQuiz || !user) {
+      console.warn("Attempted to complete quiz without currentQuiz or user data.");
+      return;
+    }
 
     const score = finalAnswers.filter(ans => ans.isCorrect).length;
     const timeSpent = Math.round((Date.now() - quizStartTime) / 1000);
@@ -67,16 +73,24 @@ const QuizPage: React.FC = () => {
       userId: user.id,
       score,
       totalQuestions: currentQuiz.questions.length,
-      answers: finalAnswers,
+      answers: finalAnswers, // Use finalAnswers passed to the function
       completedAt: Date.now(),
       timeSpent,
     };
 
-    const attemptId = await useQuizStore.getState().saveQuizAttempt(attempt);
+    try {
+      // Use the destructured saveQuizAttempt directly
+      const attemptId = await saveQuizAttempt(attempt);
 
-    if (attemptId) {
-      setQuizAttempt({ id: attemptId, ...attempt });
-      setQuizCompleted(true);
+      if (attemptId) {
+        setQuizAttempt({ id: attemptId, ...attempt });
+        setQuizCompleted(true);
+      } else {
+        console.error("Failed to get an attempt ID after saving.");
+      }
+    } catch (err) {
+      console.error("Error saving quiz attempt:", err);
+      // Optionally display an error message to the user
     }
   };
 
@@ -135,6 +149,15 @@ const QuizPage: React.FC = () => {
           questionNumber={currentQuestionIndex + 1}
           totalQuestions={currentQuiz.questions.length}
         />
+      )}
+      {/* Optional: Add a button to go back to quizzes if the quiz has no questions */}
+      {currentQuiz.questions.length === 0 && (
+        <div className="text-center py-8">
+          <p className="text-slate-600">This quiz has no questions. It might be invalid or still generating.</p>
+          <Button onClick={() => navigate('/quizzes')} className="mt-4">
+            Back to Quizzes
+          </Button>
+        </div>
       )}
     </div>
   );

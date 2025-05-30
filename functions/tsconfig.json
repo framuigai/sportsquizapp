@@ -1,14 +1,16 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
-    "module": "ESNext",
-    "moduleResolution": "Node",
-    "esModuleInterop": true,
+    "target": "es2021", // Use a modern target that supports async/await and other features
+    "module": "commonjs", // Cloud Functions typically use CommonJS
+    "lib": ["es2021", "dom"], // Crucial: 'dom' provides Request/Response global types
+    "strict": true, // Enable all strict type-checking options for better code
+    "esModuleInterop": true, // Allows default imports from modules with no default export
+    "skipLibCheck": true, // Often helpful to ignore type errors from node_modules themselves
     "forceConsistentCasingInFileNames": true,
-    "strict": true,
-    "skipLibCheck": true,
-    "outDir": "lib",
-    "resolveJsonModule": true
+    "outDir": "lib", // Output compiled JavaScript to the 'lib' directory
+    "rootDir": "src", // Source TypeScript files are in 'src'
+    "resolveJsonModule": true // Allows importing JSON files as modules
   },
-  "include": ["src"]
+  "include": ["src/**/*.ts"], // Include all .ts files in the src directory
+  "exclude": ["node_modules", "lib"] // Exclude these directories from compilation
 }

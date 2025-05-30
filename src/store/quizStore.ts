@@ -1,5 +1,3 @@
-// store/quizStore.ts
-
 import { create } from 'zustand';
 import { getAuth } from 'firebase/auth';
 import {
@@ -12,7 +10,8 @@ import {
   limit,
   doc,
   setDoc,
-  addDoc // Fixed: Added addDoc import
+  addDoc,
+  // Added getDocs and query for fetching multiple quizzes
 } from 'firebase/firestore';
 import { Quiz, QuizAttempt, QuizFilter } from '../types';
 import { db } from '../firebase/config';
@@ -30,6 +29,7 @@ interface QuizState {
   fetchQuizById: (id: string) => Promise<void>;
   fetchUserAttempts: (userId: string) => Promise<void>;
   saveQuizAttempt: (attempt: Omit<QuizAttempt, 'id'>) => Promise<string>;
+  fetchQuizzes: (filter?: QuizFilter) => Promise<void>; // Added: fetchQuizzes signature
 }
 
 export const useQuizStore = create<QuizState>((set, get) => ({
@@ -61,20 +61,21 @@ export const useQuizStore = create<QuizState>((set, get) => ({
       );
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' })); // Attempt to parse error
-        throw new Error(errorData.error || 'Failed to generate quiz'); // Use specific error if available
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || 'Failed to generate quiz');
       }
       const { quiz } = await response.json();
 
-      // ✅ Validate questions - this part is critical for the frontend error
+      // ✅ Validate questions
       if (!quiz.questions || quiz.questions.length === 0) {
-        // Log the actual quiz object received to help debug
         console.error("Quiz object received from function had no questions:", quiz);
         throw new Error('Generated quiz has no questions (from server response)');
       }
 
-      // ✅ Store locally for UI
-      set({ quizzes: [...get().quizzes, quiz], loading: false });
+      // Instead of storing locally, we now rely on fetchQuizzes to get the latest
+      // set({ quizzes: [...get().quizzes, quiz], loading: false }); // Removed this line
+      await get().fetchQuizzes(); // Fetch all quizzes again to include the new one
+      set({ loading: false }); // Set loading to false after refetching
 
       return quiz;
     } catch (err: any) {
@@ -89,8 +90,10 @@ export const useQuizStore = create<QuizState>((set, get) => ({
   saveQuiz: async (quiz: Quiz) => {
     try {
       await setDoc(doc(db, 'quizzes', quiz.id), quiz);
-      const quizzes = [...get().quizzes, quiz];
-      set({ quizzes });
+      // Instead of storing locally, we now rely on fetchQuizzes to get the latest
+      // const quizzes = [...get().quizzes, quiz]; // Removed this line
+      // set({ quizzes }); // Removed this line
+      await get().fetchQuizzes(); // Fetch all quizzes again to include the new one
     } catch (error) {
       console.error('Error saving quiz:', error);
       set({ error: 'Error saving quiz' });
@@ -109,6 +112,7 @@ export const useQuizStore = create<QuizState>((set, get) => ({
         set({ currentQuiz: quizData, loading: false });
       } else {
         set({ error: 'Quiz not found', loading: false });
+      
       }
     } catch (error) {
       set({ error: 'Failed to fetch quiz', loading: false });
@@ -147,7 +151,7 @@ export const useQuizStore = create<QuizState>((set, get) => ({
   saveQuizAttempt: async (attempt) => {
     set({ loading: true, error: null });
     try {
-      const attemptRef = await addDoc(collection(db, 'quizAttempts'), attempt); // Fixed: addDoc is now imported
+      const attemptRef = await addDoc(collection(db, 'quizAttempts'), attempt);
       await get().fetchUserAttempts(attempt.userId);
       set({ loading: false });
       return attemptRef.id;
@@ -157,6 +161,47 @@ export const useQuizStore = create<QuizState>((set, get) => ({
       set({ error: errorMsg, loading: false });
       console.error('Error saving quiz attempt:', error);
       return '';
+    }
+  },
+
+  /**
+   * 📚 Fetches a list of quizzes with optional filtering
+   */
+  fetchQuizzes: async (filter: QuizFilter = {}) => {
+    set({ loading: true, error: null });
+    try {
+      let q = query(collection(db, 'quizzes'));
+
+      if (filter.category) {
+        q = query(q, where('category', '==', filter.category));
+      }
+      if (filter.difficulty) {
+        q = query(q, where('difficulty', '==', filter.difficulty));
+      }
+      if (filter.team) {
+        q = query(q, where('team', '==', filter.team));
+      }
+      if (filter.event) {
+        q = query(q, where('event', '==', filter.event));
+      }
+      if (filter.country) {
+        q = query(q, where('country', '==', filter.country));
+      }
+
+      // Add ordering and limit if desired, e.g., orderBy('createdAt', 'desc')
+      q = query(q, orderBy('createdAt', 'desc')); // Order by creation date descending
+      q = query(q, limit(20)); // Limit to 20 quizzes for browse page
+
+      const querySnapshot = await getDocs(q);
+      const fetchedQuizzes = querySnapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as Quiz[];
+      set({ quizzes: fetchedQuizzes, loading: false });
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Failed to fetch quizzes';
+      set({ error: errorMsg, loading: false });
+      console.error('Error fetching quizzes:', error);
     }
   },
 }));
