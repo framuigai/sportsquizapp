@@ -3,31 +3,27 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Trophy, Clock, BadgeCheck, BarChart4 } from 'lucide-react';
 import Button from '../ui/Button';
-import { QuizAttempt } from '../../types';
+import { QuizAttempt, QuizQuestion } from '../../types';
 
 interface QuizResultProps {
-  // --- CHANGE 1: Renamed 'attempt' to 'quizAttempt' to match QuizPage.tsx
   quizAttempt: QuizAttempt;
   quizTitle: string;
-  // --- CHANGE 2: Added onRetake and onViewQuizzes props
   onRetake: () => void;
   onViewQuizzes: () => void;
+  quizQuestions: QuizQuestion[]; // Array of original quiz questions
 }
 
 const QuizResult: React.FC<QuizResultProps> = ({
-  // --- CHANGE 3: Destructured 'quizAttempt' instead of 'attempt'
   quizAttempt,
   quizTitle,
-  // --- CHANGE 4: Destructured new props
   onRetake,
   onViewQuizzes,
+  quizQuestions,
 }) => {
   const navigate = useNavigate();
 
-  // --- CHANGE 5: Use quizAttempt instead of attempt
   const percentage = Math.round((quizAttempt.score / quizAttempt.totalQuestions) * 100);
 
-  // Determine result category
   let resultCategory = '';
   let resultColor = '';
 
@@ -54,6 +50,31 @@ const QuizResult: React.FC<QuizResultProps> = ({
     const remainingSeconds = seconds % 60;
     return `${minutes}m ${remainingSeconds}s`;
   };
+
+  // Helper function to get the full correct option text
+  const getFullCorrectAnswerText = (questionId: string, correctOptionValue: string): string => {
+    const question = quizQuestions.find(q => q.id === questionId);
+    if (!question) {
+      return correctOptionValue; // Fallback if question not found
+    }
+
+    if (question.type === 'multiple_choice' && question.options) {
+      const foundOption = question.options.find(option =>
+        option.startsWith(`${correctOptionValue}.`)
+      );
+      return foundOption || correctOptionValue;
+    } else if (question.type === 'true_false') {
+      return correctOptionValue;
+    }
+    return correctOptionValue;
+  };
+
+  // ⭐ NEW HELPER FUNCTION: To get the question text ⭐
+  const getQuestionText = (questionId: string): string => {
+    const question = quizQuestions.find(q => q.id === questionId);
+    return question ? question.text : 'Question text not found.';
+  };
+
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8 sm:px-6 lg:px-8 animate-fadeIn">
@@ -102,7 +123,6 @@ const QuizResult: React.FC<QuizResultProps> = ({
             </h3>
 
             <p className="text-slate-500 mt-1">
-              {/* --- CHANGE 6: Use quizAttempt instead of attempt */}
               You scored {quizAttempt.score} out of {quizAttempt.totalQuestions}
             </p>
           </div>
@@ -112,7 +132,6 @@ const QuizResult: React.FC<QuizResultProps> = ({
               <Clock className="h-6 w-6 text-slate-500 mr-3" />
               <div>
                 <p className="text-sm text-slate-500">Time Spent</p>
-                {/* --- CHANGE 7: Use quizAttempt instead of attempt */}
                 <p className="font-semibold">{formatTime(quizAttempt.timeSpent)}</p>
               </div>
             </div>
@@ -121,7 +140,6 @@ const QuizResult: React.FC<QuizResultProps> = ({
               <BadgeCheck className="h-6 w-6 text-green-500 mr-3" />
               <div>
                 <p className="text-sm text-slate-500">Correct Answers</p>
-                {/* --- CHANGE 8: Use quizAttempt instead of attempt */}
                 <p className="font-semibold">{quizAttempt.score}</p>
               </div>
             </div>
@@ -130,13 +148,11 @@ const QuizResult: React.FC<QuizResultProps> = ({
               <BarChart4 className="h-6 w-6 text-red-500 mr-3" />
               <div>
                 <p className="text-sm text-slate-500">Incorrect Answers</p>
-                {/* --- CHANGE 9: Use quizAttempt instead of attempt */}
                 <p className="font-semibold">{quizAttempt.totalQuestions - quizAttempt.score}</p>
               </div>
             </div>
           </div>
 
-          {/* Optional: Add review details section if desired, similar to my last example */}
           {quizAttempt.answers && quizAttempt.answers.length > 0 && (
             <div className="mt-8 text-left border-t pt-4 border-slate-200">
               <h3 className="text-xl font-semibold mb-4">Review Your Answers:</h3>
@@ -144,14 +160,18 @@ const QuizResult: React.FC<QuizResultProps> = ({
                 {quizAttempt.answers.map((answerDetail, index) => (
                   <div key={answerDetail.questionId || index} className="p-3 rounded-md bg-slate-50 border border-slate-200">
                     <p className="font-medium text-slate-800 mb-1">
-                      Question {index + 1}:
+                      Question {index + 1}: {/* ⭐ Question Number ⭐ */}
+                    </p>
+                    {/* ⭐ ADDED QUESTION TEXT HERE ⭐ */}
+                    <p className="text-base text-slate-700 mb-2">
+                        {getQuestionText(answerDetail.questionId)}
                     </p>
                     <p className={`text-sm ${answerDetail.isCorrect ? 'text-green-600' : 'text-red-600'}`}>
                       Your Answer: "{answerDetail.userAnswer}" {answerDetail.isCorrect ? ' (Correct)' : ' (Incorrect)'}
                     </p>
                     {!answerDetail.isCorrect && (
                       <p className="text-sm text-slate-700">
-                        Correct Answer: "{answerDetail.correctAnswer}"
+                        Correct Answer: "{getFullCorrectAnswerText(answerDetail.questionId, answerDetail.correctAnswer)}"
                       </p>
                     )}
                   </div>
@@ -160,27 +180,24 @@ const QuizResult: React.FC<QuizResultProps> = ({
             </div>
           )}
 
-
           <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4 mt-8">
-            {/* The existing buttons should call the new props */}
             <Button
               variant="outline"
-              onClick={onViewQuizzes} // Changed to use the prop
+              onClick={onViewQuizzes}
               fullWidth
             >
               Browse More Quizzes
             </Button>
             <Button
               variant="primary"
-              onClick={() => navigate('/history')} // Keep this if history navigation is desired
+              onClick={() => navigate('/history')}
               fullWidth
             >
               View History
             </Button>
-            {/* Add a button for retake */}
             <Button
               variant="secondary"
-              onClick={onRetake} // Changed to use the prop
+              onClick={onRetake}
               fullWidth
             >
               Retake Quiz

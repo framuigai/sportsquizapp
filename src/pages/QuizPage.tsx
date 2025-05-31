@@ -1,16 +1,15 @@
+// src/pages/QuizPage.tsx
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AlertCircle } from 'lucide-react';
 import QuizQuestion from '../components/quiz/QuizQuestion';
-import QuizResult from '../components/quiz/QuizResult'; // Correct path
+import QuizResult from '../components/quiz/QuizResult';
 import Button from '../components/ui/Button';
 import { useQuizStore } from '../store/quizStore';
 import { useAuthStore } from '../store/authStore';
-// CORRECTED: Removed unused 'User as AuthUser' import
-import { QuizAttempt } from '../types';
-// KEEP this as .ts for now if that's what made the error go away,
-// or revert to without .ts if you're confident in tsconfig.
+import { QuizAttempt, QuizQuestion as QuizQuestionType } from '../types'; // ⭐ Renamed QuizQuestion to QuizQuestionType to avoid conflict with component name ⭐
 import { submitQuizCallable } from '../firebase/functions.ts';
+import { Timestamp } from 'firebase/firestore';
 
 // Define types for data exchanged with the backend
 interface BackendSubmitResponse {
@@ -24,7 +23,7 @@ interface BackendSubmitResponse {
   reviewDetails: {
     questionId: string;
     selectedOption: string;
-    correctOption: string;
+    correctOption: string; // This is 'A', 'B', 'True', 'False'
     isCorrect: boolean;
   }[];
   timeSpentSeconds: number;
@@ -106,7 +105,7 @@ const QuizPage: React.FC = () => {
           correctAnswer: detail.correctOption,
           isCorrect: detail.isCorrect,
         })),
-        completedAt: Date.now(),
+        completedAt: Timestamp.now(),
         timeSpent: responseData.timeSpentSeconds,
       };
 
@@ -151,7 +150,7 @@ const QuizPage: React.FC = () => {
   if (quizCompleted && quizAttempt) {
     return (
       <QuizResult
-        quizAttempt={quizAttempt} // This prop name now matches QuizResult.tsx
+        quizAttempt={quizAttempt}
         quizTitle={currentQuiz.title}
         onRetake={() => {
           setQuizCompleted(false);
@@ -161,6 +160,8 @@ const QuizPage: React.FC = () => {
           setQuizStartTime(Date.now()); // Reset timer
         }}
         onViewQuizzes={() => navigate('/quizzes')}
+        // ⭐ CRITICAL CHANGE: Pass the current quiz's questions ⭐
+        quizQuestions={currentQuiz.questions}
       />
     );
   }

@@ -6,6 +6,8 @@ import { Calendar, Clock, BarChart4, Trophy } from 'lucide-react';
 import Card, { CardContent } from '../components/ui/Card';
 import { useQuizStore } from '../store/quizStore';
 import { useAuthStore } from '../store/authStore';
+// No need to import Timestamp here if your useQuizStore correctly returns Timestamp objects
+// import { Timestamp } from 'firebase/firestore'; // You won't need this if the type is correct in quizStore and types/index.ts
 
 const HistoryPage: React.FC = () => {
   const navigate = useNavigate();
@@ -27,8 +29,12 @@ const HistoryPage: React.FC = () => {
   }, [user, fetchUserAttempts]);
 
   // Format date
-  const formatDate = (timestamp: number) => {
-    const date = new Date(timestamp);
+  const formatDate = (timestamp: any) => { // 'any' for robustness, but should be Timestamp now
+    // ⭐ CRITICAL CHANGE: Check if it's a Timestamp object and convert ⭐
+    const date = timestamp && typeof timestamp.toDate === 'function'
+      ? timestamp.toDate() // It's a Firestore Timestamp, convert to JS Date
+      : new Date(timestamp); // Fallback for any other unexpected format
+
     return date.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
@@ -98,6 +104,7 @@ const HistoryPage: React.FC = () => {
                       <div className="flex flex-wrap gap-y-2 text-sm text-slate-500">
                         <div className="flex items-center mr-6">
                           <Calendar className="h-4 w-4 mr-1" />
+                          {/* ⭐ USES THE UPDATED formatDate FUNCTION ⭐ */}
                           <span>{formatDate(attempt.completedAt)}</span>
                         </div>
                         <div className="flex items-center mr-6">

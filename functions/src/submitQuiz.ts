@@ -1,16 +1,15 @@
 // functions/src/submitQuiz.ts
-import * as functions from 'firebase-functions'; // ⭐ KEEP THIS: Still needed for functions.https.HttpsError and functions.logger
-import { onCall } from 'firebase-functions/v2/https'; // ⭐ CHANGE: Import onCall directly from v2/https
+import * as functions from 'firebase-functions'; // Still needed for functions.https.HttpsError
+import { onCall } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin'; // For Firestore and FieldValue
-// No explicit logger import needed if you use functions.logger directly
-
+// No explicit logger import needed if you use functions.logger directly (which we do)
 
 const db = admin.firestore(); // Get Firestore instance
 
 // Define interfaces for clarity and type safety
 interface UserSelectedAnswerForFunction {
     questionId: string;
-    selectedOption: string; // e.g., 'A', 'B', 'C', 'D' or 'True'/'False'
+    selectedOption: string; // e.g., 'A. Option Text' or 'True'/'False'
 }
 
 interface QuizSubmissionData {
@@ -25,7 +24,7 @@ interface StoredQuestion {
     text: string;
     type: 'multiple_choice' | 'true_false';
     options?: string[]; // e.g., ["A. Option 1", "B. Option 2", "C. Option 3", "D. Option 4"]
-    correctAnswer: string; // e.g., 'A', 'B', 'C', 'D' or 'True'/'False'
+    correctAnswer: string; // e.g., 'A', 'B', 'C', 'D' or 'True'/'False' (should be just the letter/boolean value)
 }
 
 // Structure for the quiz as stored in Firestore
@@ -39,36 +38,29 @@ interface StoredQuiz {
 // Interface for what we want to store for a single quiz attempt in Firestore
 interface QuizAttemptData {
     id: string; // Storing the document ID within the document for easier access
-    userId: string; // Changed from 'uid' to 'userId' for consistency
+    userId: string;
     quizId: string;
     score: number; // Only storing correct count for score
     totalQuestions: number;
     answers: { // Simplified to match frontend QuizAttempt['answers'] type
         questionId: string;
-        userAnswer: string;
-        correctAnswer: string;
+        userAnswer: string; // The full string the user selected, e.g., "A. Option Text"
+        correctAnswer: string; // The actual correct option (e.g., 'A' or 'True')
         isCorrect: boolean;
     }[];
-    timeSpent: number; // Changed from timeSpentSeconds for consistency with frontend type
+    timeSpent: number;
     completedAt: admin.firestore.FieldValue; // Use server timestamp for consistency and accuracy
 }
 
 
 // Cloud Function handler for submitting a quiz (using onCall from v2)
-// ⭐ CHANGE: Use onCall directly from the v2 import and specify region in the config object
-export const submitQuiz = onCall({ region: 'us-central1' }, async (event) => { // 'event' now contains data and auth
-    // --- Explanation 1: onCall functions use `event.auth` for authentication, not `context.auth`.
-    // The `declare module 'express-serve-static-core'` and `Request` type extensions
-    // are ONLY for `onRequest` functions and are not needed here.
-    const userId = event.auth?.uid; // Access auth from event.auth
+export const submitQuiz = onCall({ region: 'us-central1' }, async (event) => {
+    const userId = event.auth?.uid;
     if (!userId) {
-        // --- Explanation 2: Throw HttpsError for client-side SDK to catch
         throw new functions.https.HttpsError('unauthenticated', 'Authentication required. User not logged in.');
     }
 
-    // --- Explanation 3: Input validation for onCall functions
-    // `event.data` is already parsed by the SDK, so direct property access is safe.
-    const data: QuizSubmissionData = event.data as QuizSubmissionData; // Cast event.data to your expected type
+    const data: QuizSubmissionData = event.data as QuizSubmissionData;
     const { quizId, userAnswers, quizStartTime } = data;
 
     if (!quizId || !Array.isArray(userAnswers) || userAnswers.length === 0 || !quizStartTime) {
@@ -76,7 +68,6 @@ export const submitQuiz = onCall({ region: 'us-central1' }, async (event) => { /
     }
 
     try {
-        // 1. Fetch the original quiz from Firestore to get the authoritative correct answers
         const quizDocRef = db.collection('quizzes').doc(quizId);
         const quizDoc = await quizDocRef.get();
 
@@ -94,37 +85,51 @@ export const submitQuiz = onCall({ region: 'us-central1' }, async (event) => { /
         const quizQuestions: StoredQuestion[] = quizData.questions;
         const totalQuestions = quizQuestions.length;
 
-        // 2. Initialize counters and details for review
         let correctCount = 0;
-        const attemptDetails: QuizAttemptData['answers'] = []; // Renamed to 'answers' to match frontend QuizAttempt type
+        const attemptDetails: QuizAttemptData['answers'] = [];
 
-        // Create a map for quick lookup of correct answers
         const correctAnswersMap = new Map<string, string>();
         quizQuestions.forEach(q => {
+            // Ensure correctAnswer is consistently stored as just the letter/value (e.g., 'A', 'True')
             correctAnswersMap.set(q.id, q.correctAnswer.toString());
         });
 
-        // 3. Compare user answers with correct answers
         for (const userAnswer of userAnswers) {
             const questionId = userAnswer.questionId;
-            const selectedOption = userAnswer.selectedOption;
+            const selectedOption = userAnswer.selectedOption; // This will be "A. Option Text" or "True"/"False"
 
-            const correctOption = correctAnswersMap.get(questionId);
+            const correctOption = correctAnswersMap.get(questionId); // This should be "A" or "True"/"False"
 
             if (correctOption !== undefined) {
-                const isCorrect = selectedOption === correctOption;
+                let isCorrect: boolean;
+
+                // ⭐ NEW LOGIC STARTS HERE ⭐
+                // We need to parse the user's selectedOption to get just the 'A', 'B', 'C', 'D', 'True', or 'False'
+                if (quizQuestions.find(q => q.id === questionId)?.type === 'multiple_choice') {
+                    // For multiple choice, assume format "A. Option Text" and extract 'A'
+                    const userSelectedLetter = selectedOption.charAt(0);
+                    isCorrect = userSelectedLetter === correctOption;
+                } else if (quizQuestions.find(q => q.id === questionId)?.type === 'true_false') {
+                    // For true/false, direct comparison should work if both are "True" or "False"
+                    isCorrect = selectedOption === correctOption;
+                } else {
+                    // Fallback for unknown types or malformed data - assume incorrect
+                    isCorrect = false;
+                    functions.logger.warn(`Unknown question type or malformed answer for question ID: ${questionId}`);
+                }
+                // ⭐ NEW LOGIC ENDS HERE ⭐
+
                 if (isCorrect) {
                     correctCount++;
                 }
                 attemptDetails.push({
                     questionId: questionId,
-                    userAnswer: selectedOption, // Use userAnswer to match frontend
-                    correctAnswer: correctOption,
+                    userAnswer: selectedOption, // Keep the full string the user selected for review
+                    correctAnswer: correctOption, // Keep the concise correct answer for review
                     isCorrect: isCorrect
                 });
             } else {
                 functions.logger.warn(`User ${userId} submitted answer for unknown question ID: ${questionId} in quiz ${quizId}`);
-                // Include in attemptDetails even if question is not found, marking as incorrect
                 attemptDetails.push({
                     questionId: questionId,
                     userAnswer: selectedOption,
@@ -134,31 +139,25 @@ export const submitQuiz = onCall({ region: 'us-central1' }, async (event) => { /
             }
         }
 
-        // Calculate incorrect count based on total questions in quiz vs correct answers
-        // This assumes all questions were attempted or unattempted questions count as incorrect.
         const incorrectCount = totalQuestions - correctCount;
         const timeSpentSeconds = Math.round((Date.now() - quizStartTime) / 1000);
 
-        // 4. Prepare data for quiz attempt storage
-        // Use an auto-generated ID for the document, then store it inside the document as 'id'
-        const newAttemptRef = db.collection('quizAttempts').doc(); // Create new document reference
+        const newAttemptRef = db.collection('quizAttempts').doc();
 
         const quizAttemptData: QuizAttemptData = {
-            id: newAttemptRef.id, // The ID of the Firestore document
+            id: newAttemptRef.id,
             userId: userId,
             quizId: quizId,
-            score: correctCount, // Store just the correct count as the main score
+            score: correctCount,
             totalQuestions: totalQuestions,
-            answers: attemptDetails, // detailed review
+            answers: attemptDetails,
             timeSpent: timeSpentSeconds,
-            completedAt: admin.firestore.FieldValue.serverTimestamp(), // Use server timestamp
+            completedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
 
-        // 5. Store the quiz attempt in Firestore
         await newAttemptRef.set(quizAttemptData);
         functions.logger.info(`User ${userId} completed quiz ${quizId}. Score: ${correctCount}/${totalQuestions}. Attempt ID: ${newAttemptRef.id}`);
 
-        // 6. Return the result back to the frontend (matches FrontendBackendSubmitResponse)
         return {
             message: "Quiz submitted successfully!",
             score: {
@@ -167,24 +166,22 @@ export const submitQuiz = onCall({ region: 'us-central1' }, async (event) => { /
                 total: totalQuestions
             },
             attemptId: newAttemptRef.id,
-            reviewDetails: attemptDetails.map(detail => ({ // Map to frontend reviewDetails structure
+            reviewDetails: attemptDetails.map(detail => ({
                 questionId: detail.questionId,
-                selectedOption: detail.userAnswer, // Match frontend's 'selectedOption'
+                selectedOption: detail.userAnswer,
                 correctOption: detail.correctAnswer,
                 isCorrect: detail.isCorrect
             })),
-            timeSpentSeconds: timeSpentSeconds // Match frontend's 'timeSpentSeconds'
+            timeSpentSeconds: timeSpentSeconds
         };
 
     } catch (error: unknown) {
-        // --- Explanation 4: Catch errors and re-throw as HttpsError
         const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
         functions.logger.error("Error in submitQuiz function:", { error: errorMessage, stack: error instanceof Error ? error.stack : 'N/A' });
 
         if (error instanceof functions.https.HttpsError) {
-            throw error; // Re-throw existing HttpsErrors
+            throw error;
         } else {
-            // For any other unexpected errors, throw a generic internal error
             throw new functions.https.HttpsError('internal', 'An unexpected error occurred during quiz submission.', errorMessage);
         }
     }

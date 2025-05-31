@@ -11,7 +11,7 @@ import {
   doc,
   setDoc,
   addDoc,
-  // Added getDocs and query for fetching multiple quizzes
+  Timestamp, // ⭐ ADD THIS IMPORT ⭐
 } from 'firebase/firestore';
 import { Quiz, QuizAttempt, QuizFilter } from '../types';
 import { db } from '../firebase/config';
@@ -29,7 +29,7 @@ interface QuizState {
   fetchQuizById: (id: string) => Promise<void>;
   fetchUserAttempts: (userId: string) => Promise<void>;
   saveQuizAttempt: (attempt: Omit<QuizAttempt, 'id'>) => Promise<string>;
-  fetchQuizzes: (filter?: QuizFilter) => Promise<void>; // Added: fetchQuizzes signature
+  fetchQuizzes: (filter?: QuizFilter) => Promise<void>;
 }
 
 export const useQuizStore = create<QuizState>((set, get) => ({
@@ -132,10 +132,23 @@ export const useQuizStore = create<QuizState>((set, get) => ({
         limit(10)
       );
       const querySnapshot = await getDocs(attemptsQuery);
-      const attempts = querySnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as QuizAttempt[];
+      const attempts = querySnapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          quizId: data.quizId,
+          userId: data.userId,
+          score: data.score,
+          totalQuestions: data.totalQuestions,
+          answers: data.answers,
+          timeSpent: data.timeSpent,
+          // ⭐ CRITICAL CHANGE: Ensure completedAt is treated as a Timestamp ⭐
+          completedAt: data.completedAt instanceof Timestamp
+            ? data.completedAt
+            : (new Timestamp(data.completedAt.seconds, data.completedAt.nanoseconds)),
+            // This handles cases where old data might be raw {seconds, nanoseconds} or is already Timestamp
+        };
+      }) as QuizAttempt[];
       set({ quizAttempts: attempts, loading: false });
     } catch (error) {
       set({

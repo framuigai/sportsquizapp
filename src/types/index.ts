@@ -1,5 +1,7 @@
 // src/types/index.ts
 
+import { Timestamp } from 'firebase/firestore'; // ⭐ ADD THIS IMPORT ⭐
+
 export type User = {
   id: string;
   email: string;
@@ -12,7 +14,7 @@ export type QuizQuestion = {
   text: string;
   type: 'multiple_choice' | 'true_false';
   options?: string[];
-  correctAnswer: string; // Changed to string, assuming 'A', 'B', 'C', 'D' or 'True'/'False'
+  correctAnswer: string;
 };
 
 export type Quiz = {
@@ -35,14 +37,14 @@ export type QuizAttempt = {
   userId: string;
   score: number;
   totalQuestions: number;
-  // Updated `answers` array to match the backend's reviewDetails structure
   answers: {
     questionId: string;
-    userAnswer: string; // Represents the selected option from the user (e.g., 'A', 'True')
-    correctAnswer: string; // The correct option as stored in the quiz (e.g., 'B', 'False')
-    isCorrect: boolean; // Boolean indicating if the user's answer was correct
+    userAnswer: string;
+    correctAnswer: string;
+    isCorrect: boolean;
   }[];
-  completedAt: number;
+  // ⭐ CHANGE THIS LINE ⭐
+  completedAt: Timestamp; // Should be Firebase Timestamp object
   timeSpent: number; // in seconds
 };
 
@@ -58,5 +60,5 @@ export type QuizFilter = {
 export type Category = {
   id: string;
   name: string;
-  icon?: string; // Optional Lucide icon
+  icon?: string;
 };
