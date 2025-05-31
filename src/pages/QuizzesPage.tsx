@@ -1,66 +1,53 @@
+// src/pages/QuizzesPage.tsx
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, Sparkles } from 'lucide-react';
+import { AlertCircle } from 'lucide-react'; // ⭐ Removed Sparkles import ⭐
 import QuizCard from '../components/quiz/QuizCard';
 import QuizFilter from '../components/quiz/QuizFilter';
-import Button from '../components/ui/Button';
+// ⭐ Removed Button import if not used for other purposes on this page ⭐
+// import Button from '../components/ui/Button'; // Keep if other buttons are on this page
 import { useQuizStore } from '../store/quizStore';
 import { Quiz, QuizFilter as QuizFilterType } from '../types';
 
 const QuizzesPage: React.FC = () => {
-  // Destructure fetchQuizzes from useQuizStore
-  const { quizzes, loading, error, fetchQuizzes, generateQuiz } = useQuizStore(); // Removed saveQuiz as generateQuiz now calls fetchQuizzes internally
+  // ⭐ Removed 'generateQuiz' from destructuring ⭐
+  const { quizzes, loading, error, fetchQuizzes } = useQuizStore();
   const [filter, setFilter] = useState<QuizFilterType>({});
-  const [generating, setGenerating] = useState(false);
+  // ⭐ Removed 'generating' state and its setter ⭐
+  // const [generating, setGenerating] = useState(false);
 
   // Initial fetch of quizzes on component mount
   useEffect(() => {
     fetchQuizzes();
-  }, [fetchQuizzes]); // Dependency array to re-run if fetchQuizzes reference changes (though it shouldn't)
+  }, [fetchQuizzes]);
 
   const handleFilterChange = (newFilter: QuizFilterType) => {
     setFilter(newFilter);
     fetchQuizzes(newFilter); // Pass the new filter to fetchQuizzes
   };
 
-  const handleGenerateQuiz = async () => {
-    setGenerating(true);
-    try {
-      // generateQuiz now directly saves to Firestore and refetches the list internally
-      await generateQuiz(filter);
-      // Removed the manual saveQuiz and temporary ID generation here
-      // const newQuiz: Quiz = {
-      //   ...generated,
-      //   id: Math.random().toString(36).substring(2, 10), // Temp ID (replace with Firestore ID if saving)
-      //   createdBy: 'AI',
-      //   createdAt: Date.now(),
-      // };
-      // await saveQuiz(newQuiz);
-    } catch (err: any) { // Type 'any' for the error
-      console.error('Failed to generate quiz:', err);
-      // Optionally, set a local error state here if you want to display it
-      // setLocalError(err.message || 'Failed to generate quiz');
-    } finally {
-      setGenerating(false);
-    }
-  };
+  // ⭐ Removed the entire handleGenerateQuiz function ⭐
+  // const handleGenerateQuiz = async () => {
+  //   setGenerating(true);
+  //   try {
+  //     await generateQuiz(filter);
+  //   } catch (err: any) {
+  //     console.error('Failed to generate quiz:', err);
+  //   } finally {
+  //     setGenerating(false);
+  //   }
+  // };
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8 flex flex-col sm:flex-row sm:justify-between sm:items-center">
         <div>
           <h1 className="text-3xl font-bold text-slate-800">Browse Quizzes</h1>
+          {/* ⭐ Updated descriptive text for a Browse-only page ⭐ */}
           <p className="text-slate-600 mt-2">
-            Select a quiz to test your sports knowledge, or generate one with AI.
+            Select a quiz to test your sports knowledge.
           </p>
         </div>
-        <Button
-          onClick={handleGenerateQuiz}
-          isLoading={generating}
-          leftIcon={<Sparkles className="w-4 h-4" />}
-          className="mt-4 sm:mt-0"
-        >
-          Generate Quiz with AI
-        </Button>
+        {/* ⭐ REMOVED THE "GENERATE QUIZ WITH AI" BUTTON ENTIRELY ⭐ */}
       </div>
 
       <QuizFilter onFilterChange={handleFilterChange} />
@@ -79,10 +66,9 @@ const QuizzesPage: React.FC = () => {
       ) : quizzes.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-lg shadow-sm">
           <h3 className="text-lg font-medium text-slate-900 mb-2">No quizzes found</h3>
+          {/* ⭐ Updated message for no quizzes, removing reference to generation for general users ⭐ */}
           <p className="text-slate-500">
-            {Object.keys(filter).length > 0
-              ? "Try changing your filters or generate a new quiz."
-              : "There are no quizzes available at the moment. Generate one!"}
+            Try changing your filters.
           </p>
         </div>
       ) : (
