@@ -8,6 +8,8 @@ import QuizzesPage from './pages/QuizzesPage';
 import QuizPage from './pages/QuizPage';
 import HistoryPage from './pages/HistoryPage';
 import AdminPage from './pages/AdminPage';
+import GenerateQuizPage from './pages/GenerateQuizPage';
+import MyQuizzesPage from './pages/MyQuizzesPage'; // ⭐ NEW IMPORT ⭐
 import { useAuthStore } from './store/authStore';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -40,7 +42,7 @@ const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   }
 
   if (!user || !user.isAdmin) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/" replace />; // Redirect to home if not admin
   }
 
   return <>{children}</>;
@@ -80,6 +82,23 @@ function App() {
             element={
               <ProtectedRoute>
                 <HistoryPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="generate-quiz"
+            element={
+              <ProtectedRoute>
+                <GenerateQuizPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* ⭐ NEW ROUTE FOR MY QUIZZES PAGE ⭐ */}
+          <Route
+            path="my-quizzes"
+            element={
+              <ProtectedRoute>
+                <MyQuizzesPage />
               </ProtectedRoute>
             }
           />

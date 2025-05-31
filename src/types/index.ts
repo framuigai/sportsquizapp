@@ -29,6 +29,8 @@ export type Quiz = {
   questions: QuizQuestion[];
   createdAt: number;
   createdBy: string;
+  // ⭐ NEW PROPERTY ADDED HERE ⭐
+  visibility: 'global' | 'private';
 };
 
 export type QuizAttempt = {
@@ -55,6 +57,10 @@ export type QuizFilter = {
   country?: string;
   event?: string;
   difficulty?: 'easy' | 'medium' | 'hard';
+  // ⭐ NEW FILTER OPTION ADDED HERE ⭐
+  visibility?: 'global' | 'private';
+  // ⭐ ADD THIS IF YOU WANT TO FILTER BY CREATOR (for 'My Quizzes') ⭐
+  createdBy?: string;
 };
 
 export type Category = {

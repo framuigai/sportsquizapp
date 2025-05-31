@@ -1,18 +1,18 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { LogOut, User, Trophy, BarChart4 } from 'lucide-react';
+import { LogOut, User, Trophy, Sparkles } from 'lucide-react';
 import Button from '../ui/Button';
 import { useAuthStore } from '../../store/authStore';
 
 const Header: React.FC = () => {
   const { user, signOut } = useAuthStore();
   const navigate = useNavigate();
-  
+
   const handleSignOut = async () => {
     await signOut();
     navigate('/login');
   };
-  
+
   return (
     <header className="bg-white shadow-sm sticky top-0 z-10">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -24,24 +24,36 @@ const Header: React.FC = () => {
                 <span className="text-xl font-bold text-slate-800">SportsQuiz</span>
               </Link>
             </div>
-            
+
             {user && (
               <nav className="ml-6 flex space-x-4 sm:space-x-8">
-                <Link 
-                  to="/quizzes" 
+                <Link
+                  to="/quizzes"
                   className="inline-flex items-center px-1 pt-1 border-b-2 border-transparent text-sm font-medium text-slate-600 hover:text-slate-800 hover:border-slate-300"
                 >
-                  Quizzes
+                  Global Quizzes
                 </Link>
-                <Link 
-                  to="/history" 
+                <Link
+                  to="/my-quizzes" // ⭐ LINK TO MY QUIZZES PAGE ⭐
+                  className="inline-flex items-center px-1 pt-1 border-b-2 border-transparent text-sm font-medium text-slate-600 hover:text-slate-800 hover:border-slate-300"
+                >
+                  My Quizzes
+                </Link>
+                <Link
+                  to="/generate-quiz"
+                  className="inline-flex items-center px-1 pt-1 border-b-2 border-transparent text-sm font-medium text-slate-600 hover:text-slate-800 hover:border-slate-300"
+                >
+                  Generate Quiz
+                </Link>
+                <Link
+                  to="/history"
                   className="inline-flex items-center px-1 pt-1 border-b-2 border-transparent text-sm font-medium text-slate-600 hover:text-slate-800 hover:border-slate-300"
                 >
                   History
                 </Link>
                 {user.isAdmin && (
-                  <Link 
-                    to="/admin" 
+                  <Link
+                    to="/admin"
                     className="inline-flex items-center px-1 pt-1 border-b-2 border-transparent text-sm font-medium text-slate-600 hover:text-slate-800 hover:border-slate-300"
                   >
                     Admin
@@ -50,7 +62,7 @@ const Header: React.FC = () => {
               </nav>
             )}
           </div>
-          
+
           <div className="flex items-center">
             {user ? (
               <div className="flex items-center space-x-4">
@@ -62,7 +74,7 @@ const Header: React.FC = () => {
                     {user.displayName || user.email}
                   </span>
                 </div>
-                
+
                 <Button
                   variant="ghost"
                   size="sm"
@@ -74,14 +86,14 @@ const Header: React.FC = () => {
               </div>
             ) : (
               <div className="flex space-x-4">
-                <Button 
+                <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => navigate('/login')}
                 >
                   Sign in
                 </Button>
-                <Button 
+                <Button
                   variant="primary"
                   size="sm"
                   onClick={() => navigate('/signup')}
