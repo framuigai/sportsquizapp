@@ -1,12 +1,10 @@
 import { onRequest } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
-import { initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 import { GoogleGenerativeAI, GenerateContentRequest } from "@google/generative-ai";
 
-// Initialize Firebase Admin SDK
-initializeApp();
+
 const db = getFirestore();
 
 // Define expected request body

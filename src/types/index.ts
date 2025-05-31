@@ -1,4 +1,4 @@
-// types/index.ts
+// src/types/index.ts
 
 export type User = {
   id: string;
@@ -12,7 +12,7 @@ export type QuizQuestion = {
   text: string;
   type: 'multiple_choice' | 'true_false';
   options?: string[];
-  correctAnswer: string | boolean;
+  correctAnswer: string; // Changed to string, assuming 'A', 'B', 'C', 'D' or 'True'/'False'
 };
 
 export type Quiz = {
@@ -35,10 +35,12 @@ export type QuizAttempt = {
   userId: string;
   score: number;
   totalQuestions: number;
+  // Updated `answers` array to match the backend's reviewDetails structure
   answers: {
     questionId: string;
-    userAnswer: string | boolean;
-    isCorrect: boolean;
+    userAnswer: string; // Represents the selected option from the user (e.g., 'A', 'True')
+    correctAnswer: string; // The correct option as stored in the quiz (e.g., 'B', 'False')
+    isCorrect: boolean; // Boolean indicating if the user's answer was correct
   }[];
   completedAt: number;
   timeSpent: number; // in seconds

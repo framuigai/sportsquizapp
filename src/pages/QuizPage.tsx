@@ -2,25 +2,47 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AlertCircle } from 'lucide-react';
 import QuizQuestion from '../components/quiz/QuizQuestion';
-import QuizResult from '../components/quiz/QuizResult';
+import QuizResult from '../components/quiz/QuizResult'; // Correct path
 import Button from '../components/ui/Button';
 import { useQuizStore } from '../store/quizStore';
 import { useAuthStore } from '../store/authStore';
+// CORRECTED: Removed unused 'User as AuthUser' import
 import { QuizAttempt } from '../types';
+// KEEP this as .ts for now if that's what made the error go away,
+// or revert to without .ts if you're confident in tsconfig.
+import { submitQuizCallable } from '../firebase/functions.ts';
+
+// Define types for data exchanged with the backend
+interface BackendSubmitResponse {
+  message: string;
+  score: {
+    correct: number;
+    incorrect: number;
+    total: number;
+  };
+  attemptId: string;
+  reviewDetails: {
+    questionId: string;
+    selectedOption: string;
+    correctOption: string;
+    isCorrect: boolean;
+  }[];
+  timeSpentSeconds: number;
+}
+
+interface UserSelectedAnswerForBackend {
+  questionId: string;
+  selectedOption: string;
+}
 
 const QuizPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  // Ensure fetchQuizById is destructured
-  const { currentQuiz, loading, error, fetchQuizById, saveQuizAttempt } = useQuizStore(); // Added saveQuizAttempt for direct access
+  const { currentQuiz, loading, error, fetchQuizById } = useQuizStore();
   const { user, isInitialized } = useAuthStore();
 
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [answers, setAnswers] = useState<Array<{
-    questionId: string;
-    userAnswer: string | boolean;
-    isCorrect: boolean;
-  }>>([]);
+  const [answers, setAnswers] = useState<UserSelectedAnswerForBackend[]>([]);
   const [quizCompleted, setQuizCompleted] = useState(false);
   const [quizStartTime, setQuizStartTime] = useState(Date.now());
   const [quizAttempt, setQuizAttempt] = useState<QuizAttempt | null>(null);
@@ -28,138 +50,128 @@ const QuizPage: React.FC = () => {
   useEffect(() => {
     if (id) {
       fetchQuizById(id);
-      setQuizStartTime(Date.now()); // Set start time when quiz is fetched/ID changes
+      setQuizStartTime(Date.now());
     }
-  }, [id, fetchQuizById]); // Depend on id and fetchQuizById
+  }, [id, fetchQuizById]);
 
   useEffect(() => {
-    // Only navigate to login if user is not initialized AND no user is found
     if (isInitialized && !user) {
       navigate('/login');
     }
-  }, [isInitialized, user, navigate]); // Depend on isInitialized, user, navigate
+  }, [isInitialized, user, navigate]);
 
-  const handleAnswer = (answer: string | boolean, isCorrect: boolean) => {
+  const handleAnswer = (selectedOption: string) => {
     if (!currentQuiz) return;
 
     const question = currentQuiz.questions[currentQuestionIndex];
 
-    const newAnswers = [...answers, {
+    const updatedAnswers: UserSelectedAnswerForBackend[] = [...answers, {
       questionId: question.id,
-      userAnswer: answer,
-      isCorrect,
+      selectedOption: selectedOption,
     }];
-    setAnswers(newAnswers);
+    setAnswers(updatedAnswers);
 
-    // Check if it's the last question BEFORE incrementing index
     if (currentQuestionIndex < currentQuiz.questions.length - 1) {
       setCurrentQuestionIndex(currentQuestionIndex + 1);
     } else {
-      completeQuiz(newAnswers); // Pass newAnswers directly
+      completeQuiz(updatedAnswers);
     }
   };
 
-  const completeQuiz = async (finalAnswers: typeof answers) => { // Accept finalAnswers as an argument
+  const completeQuiz = async (finalAnswers: UserSelectedAnswerForBackend[]) => {
     if (!currentQuiz || !user) {
       console.warn("Attempted to complete quiz without currentQuiz or user data.");
       return;
     }
 
-    const score = finalAnswers.filter(ans => ans.isCorrect).length;
-    const timeSpent = Math.round((Date.now() - quizStartTime) / 1000);
-
-    const attempt: Omit<QuizAttempt, 'id'> = {
-      quizId: currentQuiz.id,
-      userId: user.id,
-      score,
-      totalQuestions: currentQuiz.questions.length,
-      answers: finalAnswers, // Use finalAnswers passed to the function
-      completedAt: Date.now(),
-      timeSpent,
-    };
-
     try {
-      // Use the destructured saveQuizAttempt directly
-      const attemptId = await saveQuizAttempt(attempt);
+      const result = await submitQuizCallable({
+        quizId: currentQuiz.id,
+        userAnswers: finalAnswers,
+        quizStartTime: quizStartTime,
+      });
 
-      if (attemptId) {
-        setQuizAttempt({ id: attemptId, ...attempt });
-        setQuizCompleted(true);
-      } else {
-        console.error("Failed to get an attempt ID after saving.");
-      }
-    } catch (err) {
-      console.error("Error saving quiz attempt:", err);
-      // Optionally display an error message to the user
+      const responseData = result.data as BackendSubmitResponse;
+      console.log('Quiz submission response:', responseData);
+
+      const newQuizAttempt: QuizAttempt = {
+        id: responseData.attemptId,
+        quizId: currentQuiz.id,
+        userId: user.id,
+        score: responseData.score.correct,
+        totalQuestions: responseData.score.total,
+        answers: responseData.reviewDetails.map(detail => ({
+          questionId: detail.questionId,
+          userAnswer: detail.selectedOption,
+          correctAnswer: detail.correctOption,
+          isCorrect: detail.isCorrect,
+        })),
+        completedAt: Date.now(),
+        timeSpent: responseData.timeSpentSeconds,
+      };
+
+      setQuizAttempt(newQuizAttempt);
+      setQuizCompleted(true);
+    } catch (err: any) {
+      console.error('Error submitting quiz:', err);
+      alert(`Failed to submit quiz: ${err.message || 'Unknown error'}`);
     }
   };
 
   if (loading) {
+    return <div className="text-center py-8">Loading quiz...</div>;
+  }
+
+  if (error) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-sky-500"></div>
+      <div className="flex flex-col items-center justify-center h-screen text-red-500">
+        <AlertCircle size={48} className="mb-4" />
+        <h2 className="text-xl font-semibold">Error Loading Quiz</h2>
+        <p className="text-lg">{error}</p>
+        <Button onClick={() => navigate('/quizzes')} className="mt-4">
+          Back to Quizzes
+        </Button>
       </div>
     );
   }
 
-  if (error || !currentQuiz) {
+  if (!currentQuiz) {
     return (
-      <div className="max-w-2xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
-        <div className="p-4 bg-red-50 border border-red-200 text-red-800 rounded-md flex items-start">
-          <AlertCircle className="h-5 w-5 mr-2 mt-0.5 flex-shrink-0" />
-          <div>
-            <p className="font-medium">Quiz not found</p>
-            <p className="mt-1">{error || "This quiz doesn't exist or has been removed."}</p>
-          </div>
-        </div>
-        <div className="mt-4 flex justify-center">
-          <Button variant="outline" onClick={() => navigate('/quizzes')}>
-            Back to Quizzes
-          </Button>
-        </div>
+      <div className="flex flex-col items-center justify-center h-screen text-slate-600">
+        <AlertCircle size={48} className="mb-4" />
+        <h2 className="text-xl font-semibold">Quiz Not Found</h2>
+        <p className="text-lg">The quiz you are looking for does not exist.</p>
+        <Button onClick={() => navigate('/quizzes')} className="mt-4">
+          Back to Quizzes
+        </Button>
       </div>
     );
   }
 
   if (quizCompleted && quizAttempt) {
-    return <QuizResult attempt={quizAttempt} quizTitle={currentQuiz.title} />;
+    return (
+      <QuizResult
+        quizAttempt={quizAttempt} // This prop name now matches QuizResult.tsx
+        quizTitle={currentQuiz.title}
+        onRetake={() => {
+          setQuizCompleted(false);
+          setCurrentQuestionIndex(0);
+          setAnswers([]);
+          setQuizAttempt(null);
+          setQuizStartTime(Date.now()); // Reset timer
+        }}
+        onViewQuizzes={() => navigate('/quizzes')}
+      />
+    );
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-800">{currentQuiz.title}</h1>
-        <div className="flex items-center text-sm text-slate-500 mt-1">
-          <span className="font-medium text-slate-600">{currentQuiz.category}</span>
-          {currentQuiz.team && (
-            <>
-              <span className="mx-2">•</span>
-              <span>{currentQuiz.team}</span>
-            </>
-          )}
-          <span className="mx-2">•</span>
-          <span className="capitalize">{currentQuiz.difficulty} difficulty</span>
-        </div>
-      </div>
-
-      {currentQuiz.questions.length > 0 && (
-        <QuizQuestion
-          question={currentQuiz.questions[currentQuestionIndex]}
-          onAnswer={handleAnswer}
-          questionNumber={currentQuestionIndex + 1}
-          totalQuestions={currentQuiz.questions.length}
-        />
-      )}
-      {/* Optional: Add a button to go back to quizzes if the quiz has no questions */}
-      {currentQuiz.questions.length === 0 && (
-        <div className="text-center py-8">
-          <p className="text-slate-600">This quiz has no questions. It might be invalid or still generating.</p>
-          <Button onClick={() => navigate('/quizzes')} className="mt-4">
-            Back to Quizzes
-          </Button>
-        </div>
-      )}
-    </div>
+    <QuizQuestion
+      question={currentQuiz.questions[currentQuestionIndex]}
+      onAnswer={handleAnswer}
+      questionNumber={currentQuestionIndex + 1}
+      totalQuestions={currentQuiz.questions.length}
+    />
   );
 };
 

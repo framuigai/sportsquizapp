@@ -1,0 +1,30 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Rules for the 'quizzes' collection
+    match /quizzes/{quizId} {
+      // Allow all authenticated users to read quizzes (for now, covers public and user-generated)
+      allow read: if request.auth != null;
+      // Allow authenticated users to create new quizzes
+      allow create: if request.auth != null;
+      // Only the user who created the quiz can update or delete it
+      allow update, delete: if request.auth != null && request.auth.uid == resource.data.createdBy;
+    }
+
+    // NEW Rules for the 'userAttempts' collection
+    match /userAttempts/{attemptId} {
+      // Authenticated users can create (write) their own quiz attempts
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.uid;
+      // Authenticated users can read *only their own* quiz attempts
+      allow read: if request.auth != null && request.auth.uid == resource.data.uid;
+      // Quiz attempts are typically immutable records, so disallow updates and deletes
+      allow update, delete: false;
+    }
+
+    // Default rule: Deny all other read/write operations by default for safety
+    match /{document=**} {
+      allow read, write: false;
+    }
+  }
+}

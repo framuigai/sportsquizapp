@@ -1,8 +1,9 @@
+// functions/tsconfig.json
 {
   "compilerOptions": {
     "target": "es2021", // Use a modern target that supports async/await and other features
     "module": "commonjs", // Cloud Functions typically use CommonJS
-    "lib": ["es2021", "dom"], // Crucial: 'dom' provides Request/Response global types
+    "lib": ["es2021", "dom"], // Crucial: 'dom' provides Request/Response global types (for onRequest context)
     "strict": true, // Enable all strict type-checking options for better code
     "esModuleInterop": true, // Allows default imports from modules with no default export
     "skipLibCheck": true, // Often helpful to ignore type errors from node_modules themselves

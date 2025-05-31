@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { CheckCircle, XCircle } from 'lucide-react';
-import { QuizQuestion as QuizQuestionType } from '../../types';
+import { QuizQuestion as QuizQuestionType } from '../../types'; // Path is correct
 import Button from '../ui/Button';
 
 interface QuizQuestionProps {
   question: QuizQuestionType;
-  onAnswer: (answer: string | boolean, isCorrect: boolean) => void;
+  // CHANGED: onAnswer now only takes the selectedOption (string)
+  onAnswer: (selectedOption: string) => void;
   questionNumber: number;
   totalQuestions: number;
 }
@@ -16,33 +17,39 @@ const QuizQuestion: React.FC<QuizQuestionProps> = ({
   questionNumber,
   totalQuestions,
 }) => {
-  const [selectedAnswer, setSelectedAnswer] = useState<string | boolean | null>(null);
+  // selectedAnswer will now always be a string (or null), consistent with backend
+  const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [showFeedback, setShowFeedback] = useState(false);
-  
-  const handleAnswerSelect = (answer: string | boolean) => {
+
+  const handleAnswerSelect = (answer: string) => { // CHANGED: parameter type to string
     if (showFeedback) return;
-    
+
     setSelectedAnswer(answer);
     setShowFeedback(true);
-    
-    const isCorrect = answer === question.correctAnswer;
-    
+
+    // REMOVED: isCorrect calculation is no longer done here
+
     // Allow user to see feedback before moving to next question
     setTimeout(() => {
-      onAnswer(answer, isCorrect);
+      // CHANGED: Only pass the selected answer to onAnswer
+      onAnswer(answer);
       setSelectedAnswer(null);
       setShowFeedback(false);
     }, 1500);
   };
-  
-  const isCorrectAnswer = (answer: string | boolean) => {
-    return showFeedback && answer === question.correctAnswer;
+
+  // Helper to determine if an option is the correct one for display feedback
+  const isCorrectAnswer = (option: string) => { // CHANGED: parameter type to string
+    // Ensure comparison is string to string, especially for true/false questions
+    return showFeedback && option === String(question.correctAnswer);
   };
-  
-  const isIncorrectAnswer = (answer: string | boolean) => {
-    return showFeedback && selectedAnswer === answer && answer !== question.correctAnswer;
+
+  // Helper to determine if an option is the incorrect one the user picked
+  const isIncorrectAnswer = (option: string) => { // CHANGED: parameter type to string
+    // Ensure comparison is string to string
+    return showFeedback && selectedAnswer === option && option !== String(question.correctAnswer);
   };
-  
+
   return (
     <div className="max-w-2xl mx-auto px-4 py-8 sm:px-6 lg:px-8 animate-fadeIn">
       <div className="mb-6">
@@ -55,18 +62,18 @@ const QuizQuestion: React.FC<QuizQuestionProps> = ({
           </span>
         </div>
         <div className="w-full bg-slate-200 rounded-full h-2">
-          <div 
+          <div
             className="bg-sky-500 h-2 rounded-full transition-all duration-500 ease-out"
             style={{ width: `${(questionNumber / totalQuestions) * 100}%` }}
           ></div>
         </div>
       </div>
-      
+
       <div className="bg-white shadow-md rounded-lg p-6 mb-6">
         <h2 className="text-xl font-semibold text-slate-800 mb-6">
           {question.text}
         </h2>
-        
+
         <div className="space-y-3">
           {question.type === 'multiple_choice' && question.options ? (
             question.options.map((option, index) => (
@@ -99,11 +106,12 @@ const QuizQuestion: React.FC<QuizQuestionProps> = ({
           ) : (
             <div className="flex space-x-4">
               <Button
-                onClick={() => handleAnswerSelect(true)}
+                // CHANGED: Always pass 'True' as a string for consistency
+                onClick={() => handleAnswerSelect('True')}
                 className={`flex-1 ${
-                  isCorrectAnswer(true)
+                  isCorrectAnswer('True')
                     ? 'bg-green-500 hover:bg-green-600'
-                    : isIncorrectAnswer(true)
+                    : isIncorrectAnswer('True')
                     ? 'bg-red-500 hover:bg-red-600'
                     : ''
                 }`}
@@ -111,18 +119,19 @@ const QuizQuestion: React.FC<QuizQuestionProps> = ({
               >
                 <div className="flex items-center justify-center">
                   <span>True</span>
-                  {isCorrectAnswer(true) && (
+                  {isCorrectAnswer('True') && (
                     <CheckCircle className="h-5 w-5 ml-2" />
                   )}
                 </div>
               </Button>
-              
+
               <Button
-                onClick={() => handleAnswerSelect(false)}
+                // CHANGED: Always pass 'False' as a string for consistency
+                onClick={() => handleAnswerSelect('False')}
                 className={`flex-1 ${
-                  isCorrectAnswer(false)
+                  isCorrectAnswer('False')
                     ? 'bg-green-500 hover:bg-green-600'
-                    : isIncorrectAnswer(false)
+                    : isIncorrectAnswer('False')
                     ? 'bg-red-500 hover:bg-red-600'
                     : ''
                 }`}
@@ -130,7 +139,7 @@ const QuizQuestion: React.FC<QuizQuestionProps> = ({
               >
                 <div className="flex items-center justify-center">
                   <span>False</span>
-                  {isCorrectAnswer(false) && (
+                  {isCorrectAnswer('False') && (
                     <CheckCircle className="h-5 w-5 ml-2" />
                   )}
                 </div>
