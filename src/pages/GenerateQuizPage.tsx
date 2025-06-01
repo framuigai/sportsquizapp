@@ -1,122 +1,227 @@
 // src/pages/GenerateQuizPage.tsx
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Sparkles, Loader2, Info, CheckCircle, XCircle } from 'lucide-react';
-import QuizFilter from '../components/quiz/QuizFilter'; // Correct path to your QuizFilter
-import Button from '../components/ui/Button';
-import Alert from '../components/ui/Alert';
+import React, { useState } from 'react';
 import { useQuizStore } from '../store/quizStore';
-import { useAuthStore } from '../store/authStore';
-import { QuizFilter as QuizFilterType } from '../types';
+import { Quiz } from '../types'; // Assuming your Quiz type is defined in '../types'
+import { useNavigate } from 'react-router-dom'; // Assuming you're using React Router for navigation
 
 const GenerateQuizPage: React.FC = () => {
   const navigate = useNavigate();
-  // Destructure currentQuiz, although it's not directly used for display on this page
-  // The generated quiz is added to the general 'quizzes' state in useQuizStore now.
-  const { generateQuiz, loading, error } = useQuizStore();
-  const { user } = useAuthStore();
-  const [filter, setFilter] = useState<QuizFilterType>({});
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const generateQuiz = useQuizStore((state) => state.generateQuiz);
+  const loading = useQuizStore((state) => state.loading);
+  const error = useQuizStore((state) => state.error);
+  const saveQuiz = useQuizStore((state) => state.saveQuiz); // Function to save the generated quiz
 
-  // Effect to clear messages when component mounts or filter changes (good practice)
-  useEffect(() => {
-    setSuccessMessage(null);
-    useQuizStore.setState({ error: null }); // Clear quiz store error on mount
-  }, []); // Run once on mount
+  // State for form inputs, ensuring 'category' is initialized as a string
+  const [category, setCategory] = useState<string>('');
+  const [numberOfQuestions, setNumberOfQuestions] = useState<number>(5);
+  const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard' | undefined>(undefined);
+  const [title, setTitle] = useState<string>('');
+  // Add states for other optional filters if you use them in the form
+  const [team, setTeam] = useState<string>('');
+  const [event, setEvent] = useState<string>('');
+  const [country, setCountry] = useState<string>('');
 
-  const handleFilterChange = (newFilter: QuizFilterType) => {
-    setFilter(newFilter);
-  };
+  const [generatedQuiz, setGeneratedQuiz] = useState<Quiz | null>(null);
 
-  const handleGenerateQuiz = async () => {
-    setSuccessMessage(null); // Clear previous success message
-    useQuizStore.setState({ error: null }); // Clear previous error from store
-
-    if (!user) {
-      useQuizStore.setState({ error: "You must be logged in to generate a quiz." });
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    // Basic client-side validation for category
+    if (!category.trim()) { // .trim() ensures it's not just whitespace
+      alert('Please enter a category to generate the quiz.');
       return;
     }
 
     try {
-      const generatedQuiz = await generateQuiz(filter);
+      // Call generateQuiz with the correct type for filter.category
+      const quiz = await generateQuiz({
+        category: category, // This is now guaranteed to be a string
+        numberOfQuestions: numberOfQuestions,
+        difficulty: difficulty,
+        title: title.trim() === '' ? undefined : title.trim(), // Pass undefined if empty
+        team: team.trim() === '' ? undefined : team.trim(),
+        event: event.trim() === '' ? undefined : event.trim(),
+        country: country.trim() === '' ? undefined : country.trim(),
+        // visibility is usually not set by the client for generation,
+        // it's handled by the Cloud Function based on user roles.
+      });
+      setGeneratedQuiz(quiz);
+      alert('Quiz generated successfully!');
 
-      if (generatedQuiz) {
-        setSuccessMessage(`Quiz "${generatedQuiz.title}" generated successfully! It's now in your 'My Quizzes'.`);
-        // Optional: Navigate to the newly created quiz or 'My Quizzes' page
-        // For example, to the quiz details page:
-        // navigate(`/quiz/${generatedQuiz.id}`);
-        // Or to My Quizzes page:
-        // navigate('/my-quizzes');
-      } else {
-        // If generateQuiz returns null without setting an error (e.g., due to local validation)
-        // This case is less likely now that generateQuiz in store sets error, but good to have a fallback.
-        if (!error) { // Only set if store hasn't already set it
-          useQuizStore.setState({ error: "Quiz generation failed. Please try again." });
-        }
-      }
+      // Optionally, if the cloud function doesn't save it automatically,
+      // you can offer to save it here, or call saveQuiz directly.
+      // For this example, we'll keep the separate "Save Generated Quiz" button.
+
     } catch (err: any) {
-      // The generateQuiz action in the store should already set the error.
-      // This catch block is mostly for unexpected errors that slip past the store's try-catch.
-      console.error("Caught error in GenerateQuizPage:", err);
-      if (!error) { // Only set if store hasn't already set it
-        useQuizStore.setState({ error: err.message || "An unexpected error occurred during quiz generation." });
+      console.error('Failed to generate quiz:', err);
+      // The error message from the store will be displayed via the `error` state
+    }
+  };
+
+  const handleSaveGeneratedQuiz = async () => {
+    if (generatedQuiz) {
+      try {
+        await saveQuiz(generatedQuiz);
+        alert('Generated quiz saved to Firestore!');
+        // After saving, you might want to clear the form or navigate
+        setGeneratedQuiz(null); // Clear the preview
+        setCategory(''); // Reset form fields
+        setNumberOfQuestions(5);
+        setDifficulty(undefined);
+        setTitle('');
+        setTeam('');
+        setEvent('');
+        setCountry('');
+        navigate('/admin/quizzes'); // Navigate to a list of quizzes, for example
+      } catch (saveError) {
+        console.error('Error saving generated quiz:', saveError);
+        alert('Failed to save generated quiz.');
       }
     }
   };
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <h1 className="text-4xl font-extrabold text-slate-900 mb-6 text-center">Generate Your Own Quiz</h1>
-      <p className="text-center text-slate-600 mb-8 max-w-2xl mx-auto">
-        Craft a personalized quiz just for you. Select your desired category, difficulty, and other details below, and our AI will create a unique quiz. This quiz will be private and only visible to you.
-      </p>
+    <div className="container mx-auto p-4 max-w-2xl">
+      <h1 className="text-3xl font-bold text-gray-800 mb-6">Generate New Quiz</h1>
 
-      <div className="bg-white shadow-xl rounded-lg p-6 md:p-8 lg:p-10 max-w-3xl mx-auto">
-        <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center">
-          <Sparkles className="h-6 w-6 text-sky-500 mr-2" />
-          Quiz Specifications
-        </h2>
-
-        {/* The QuizFilter component passes its internal state via onFilterChange */}
-        <QuizFilter onFilterChange={handleFilterChange} />
-
-        <div className="mt-8">
-          <Button
-            variant="primary"
-            size="lg"
-            onClick={handleGenerateQuiz}
-            disabled={loading}
-            className="w-full"
-            leftIcon={loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
-          >
-            {loading ? 'Generating Quiz...' : 'Generate My Quiz'}
-          </Button>
-
-          {successMessage && (
-            <Alert
-              type="success"
-              message={successMessage}
-              className="mt-6"
-              icon={<CheckCircle className="h-5 w-5" />}
-            />
-          )}
-
-          {error && (
-            <Alert
-              type="error"
-              message={error}
-              className="mt-6"
-              icon={<XCircle className="h-5 w-5" />}
-            />
-          )}
+      <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-md space-y-4">
+        <div>
+          <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">
+            Category: <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="text"
+            id="category"
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            required // HTML5 validation for required field
+            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+            placeholder="e.g., Football, Basketball, Olympics"
+          />
         </div>
-      </div>
 
-      <div className="mt-12 text-center">
-        <p className="text-slate-500">
-          Want to challenge the community? Only administrators can create public, global quizzes.
+        <div>
+          <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-1">
+            Title (Optional):
+          </label>
+          <input
+            type="text"
+            id="title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+            placeholder="e.g., 2024 Euros Quiz"
+          />
+        </div>
+
+        <div>
+          <label htmlFor="numberOfQuestions" className="block text-sm font-medium text-gray-700 mb-1">
+            Number of Questions: <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="number"
+            id="numberOfQuestions"
+            value={numberOfQuestions}
+            onChange={(e) => setNumberOfQuestions(parseInt(e.target.value, 10) || 1)} // Ensure it's a number, default to 1
+            min="1"
+            max="20" // Optional: set a max number of questions
+            required
+            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+          />
+        </div>
+
+        <div>
+          <label htmlFor="difficulty" className="block text-sm font-medium text-gray-700 mb-1">
+            Difficulty:
+          </label>
+          <select
+            id="difficulty"
+            value={difficulty || ''} // Handle undefined for initial render of select
+            onChange={(e) => setDifficulty(e.target.value as 'easy' | 'medium' | 'hard' | undefined)}
+            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="">Any</option>
+            <option value="easy">Easy</option>
+            <option value="medium">Medium</option>
+            <option value="hard">Hard</option>
+          </select>
+        </div>
+
+        <div>
+          <label htmlFor="team" className="block text-sm font-medium text-gray-700 mb-1">
+            Team (Optional):
+          </label>
+          <input
+            type="text"
+            id="team"
+            value={team}
+            onChange={(e) => setTeam(e.target.value)}
+            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+            placeholder="e.g., Manchester United"
+          />
+        </div>
+
+        <div>
+          <label htmlFor="event" className="block text-sm font-medium text-gray-700 mb-1">
+            Event (Optional):
+          </label>
+          <input
+            type="text"
+            id="event"
+            value={event}
+            onChange={(e) => setEvent(e.target.value)}
+            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+            placeholder="e.g., World Cup 2022"
+          />
+        </div>
+
+        <div>
+          <label htmlFor="country" className="block text-sm font-medium text-gray-700 mb-1">
+            Country (Optional):
+          </label>
+          <input
+            type="text"
+            id="country"
+            value={country}
+            onChange={(e) => setCountry(e.target.value)}
+            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+            placeholder="e.g., Brazil"
+          />
+        </div>
+
+        <button
+          type="submit"
+          className="w-full px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-blue-400"
+          disabled={loading}
+        >
+          {loading ? 'Generating...' : 'Generate Quiz'}
+        </button>
+      </form>
+
+      {error && (
+        <p className="text-red-600 bg-red-100 p-3 rounded-md mt-4 border border-red-200">
+          Error: {error}
         </p>
-      </div>
+      )}
+
+      {generatedQuiz && (
+        <div className="mt-8 p-6 bg-green-50 border border-green-200 rounded-lg shadow-md">
+          <h2 className="text-2xl font-semibold text-green-800 mb-4">Generated Quiz Preview</h2>
+          <div className="space-y-2 text-gray-700">
+            <p><strong>Title:</strong> {generatedQuiz.title || 'N/A'}</p>
+            <p><strong>Category:</strong> {generatedQuiz.category}</p>
+            <p><strong>Difficulty:</strong> {generatedQuiz.difficulty || 'N/A'}</p>
+            <p><strong>Questions:</strong> {generatedQuiz.questions.length}</p>
+            <p><strong>Created By:</strong> {generatedQuiz.createdBy}</p>
+            <p><strong>Visibility:</strong> {generatedQuiz.visibility}</p>
+          </div>
+          <button
+            onClick={handleSaveGeneratedQuiz}
+            className="mt-6 px-5 py-2 bg-green-700 text-white font-semibold rounded-md hover:bg-green-800 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+          >
+            Save Generated Quiz
+          </button>
+        </div>
+      )}
     </div>
   );
 };

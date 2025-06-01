@@ -1,20 +1,22 @@
 // src/components/quiz/QuizCard.tsx
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Clock, BarChart, Trophy, Tent as Tennis, ShoppingBasket as Basketball, Dumbbell, Car, Play } from 'lucide-react'; // ⭐ Removed SoccerBall, keeping Trophy ⭐
+import { Clock, BarChart, Trophy, Tent as Tennis, ShoppingBasket as Basketball, Dumbbell, Car, Play } from 'lucide-react';
 import Card, { CardContent, CardFooter } from '../ui/Card';
 import Button from '../ui/Button';
 import { Quiz } from '../../types';
 
 interface QuizCardProps {
   quiz: Quiz;
+  // ⭐ NEW: This prop will accept any React content, allowing us to pass admin controls ⭐
+  adminControls?: React.ReactNode;
 }
 
-const QuizCard: React.FC<QuizCardProps> = ({ quiz }) => {
+const QuizCard: React.FC<QuizCardProps> = ({ quiz, adminControls }) => {
   const navigate = useNavigate();
 
   const handleStartQuiz = (e: React.MouseEvent) => {
-    e.stopPropagation();
+    e.stopPropagation(); // Prevent card click from interfering if card itself is clickable
     navigate(`/quiz/${quiz.id}`);
   };
 
@@ -27,7 +29,7 @@ const QuizCard: React.FC<QuizCardProps> = ({ quiz }) => {
   const getCategoryIcon = () => {
     switch (quiz.category.toLowerCase()) {
       case 'football':
-        return <Trophy className="h-5 w-5 text-sky-500" />; // ⭐ Using Trophy as a fallback ⭐
+        return <Trophy className="h-5 w-5 text-sky-500" />;
       case 'tennis':
         return <Tennis className="h-5 w-5 text-green-500" />;
       case 'basketball':
@@ -43,6 +45,8 @@ const QuizCard: React.FC<QuizCardProps> = ({ quiz }) => {
   return (
     <Card
       className="h-full flex flex-col transition-transform hover:translate-y-[-4px] cursor-pointer"
+      // You might want to add an onClick to the Card itself if the whole card should navigate
+      // onClick={() => navigate(`/quiz/${quiz.id}`)}
     >
       <div className="h-32 bg-gradient-to-r from-sky-500 to-indigo-500 relative">
         <div className="absolute inset-0 flex items-center justify-center">
@@ -83,6 +87,13 @@ const QuizCard: React.FC<QuizCardProps> = ({ quiz }) => {
           </div>
         </div>
       </CardContent>
+
+      {/* ⭐ Render the adminControls here if they are provided ⭐ */}
+      {adminControls && (
+        <div className="p-4 border-t border-slate-200">
+          {adminControls}
+        </div>
+      )}
 
       <CardFooter className="bg-slate-50 p-4">
         <div className="w-full flex justify-between items-center">

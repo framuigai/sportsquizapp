@@ -7,7 +7,7 @@ import QuizResult from '../components/quiz/QuizResult';
 import Button from '../components/ui/Button';
 import { useQuizStore } from '../store/quizStore';
 import { useAuthStore } from '../store/authStore';
-import { QuizAttempt, QuizQuestion as QuizQuestionType } from '../types'; // ⭐ Renamed QuizQuestion to QuizQuestionType to avoid conflict with component name ⭐
+import { QuizAttempt } from '../types'; // Removed QuizQuestionType import here
 import { submitQuizCallable } from '../firebase/functions.ts';
 import { Timestamp } from 'firebase/firestore';
 
@@ -176,4 +176,16 @@ const QuizPage: React.FC = () => {
   );
 };
 
+/**
+ * Page that displays a quiz and handles user input.
+ *
+ * This page is responsible for fetching the quiz data from the server,
+ * displaying the quiz questions, and handling the user's answers.
+ * It also displays the quiz results and allows the user to retake the quiz.
+ *
+ * The page uses the {@link useQuizStore} to manage the quiz data and
+ * the {@link useAuthStore} to manage the user's authentication state.
+ *
+ * @returns The QuizPage component.
+ */
 export default QuizPage;

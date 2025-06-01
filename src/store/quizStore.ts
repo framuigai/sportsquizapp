@@ -12,12 +12,40 @@ import {
   doc,
   setDoc,
   addDoc,
-  Timestamp,
+  Timestamp, // Firebase Timestamp type
+  DocumentData, // Import DocumentData: Crucial for accessing raw Firestore data
 } from 'firebase/firestore';
 import { Quiz, QuizAttempt, QuizFilter } from '../types';
-import { db } from '../firebase/config';
-import { fetch as crossFetch } from 'cross-fetch';
-import { useAuthStore } from './authStore'; // ⭐ IMPORT YOUR AUTH STORE HERE ⭐
+import { db, functions } from '../firebase/config'; // 'functions' will now be exported from config.ts
+import { httpsCallable } from 'firebase/functions'; // Import httpsCallable
+import { useAuthStore } from './authStore';
+
+// Define the raw document types as they come directly from Firestore
+// This helps TypeScript understand the potential types before conversion
+interface RawQuizDocument extends DocumentData {
+  createdAt?: Timestamp | number; // Firestore will return Timestamp, but could be number if manually set
+}
+
+interface RawQuizAttemptDocument extends DocumentData {
+  completedAt?: Timestamp; // Firestore will return Timestamp
+}
+
+// Define the type for the callable function's request payload
+interface GenerateQuizCallableRequest {
+  title?: string;
+  category: string; // This is a required string for the Cloud Function
+  difficulty?: 'easy' | 'medium' | 'hard';
+  numberOfQuestions: number;
+  team?: string;
+  event?: string;
+  country?: string;
+  visibility?: 'global' | 'private'; // Optional, will be handled by server based on admin status
+}
+
+// Define the type for the callable function's response data
+interface GenerateQuizCallableResponse {
+  quiz: Quiz;
+}
 
 interface QuizState {
   quizzes: Quiz[];
@@ -26,12 +54,16 @@ interface QuizState {
   loading: boolean;
   error: string | null;
 
-  generateQuiz: (filter: QuizFilter) => Promise<Quiz | null>;
+  // Modified generateQuiz signature:
+  // - Omit 'category' from QuizFilter because we're making it explicitly required here.
+  // - Add 'category: string' to ensure it's always passed as a string.
+  generateQuiz: (filter: Omit<QuizFilter, 'createdBy' | 'visibility' | 'category'> & { category: string; numberOfQuestions: number; visibility?: 'global' | 'private'; }) => Promise<Quiz>;
   saveQuiz: (quiz: Quiz) => Promise<void>;
   fetchQuizById: (id: string) => Promise<void>;
   fetchUserAttempts: (userId: string) => Promise<void>;
   saveQuizAttempt: (attempt: Omit<QuizAttempt, 'id'>) => Promise<string>;
   fetchQuizzes: (filter?: QuizFilter) => Promise<void>;
+  updateQuizVisibility: (quizId: string, newVisibility: 'global' | 'private') => Promise<void>;
 }
 
 export const useQuizStore = create<QuizState>((set, get) => ({
@@ -41,112 +73,94 @@ export const useQuizStore = create<QuizState>((set, get) => ({
   loading: false,
   error: null,
 
-  /**
-   * 🔁 Generates a quiz from Firebase Function with Gemini
-   * ⭐ MODIFIED to set quiz visibility based on user's isAdmin status ⭐
-   */
-  generateQuiz: async (filter: QuizFilter) => {
+  generateQuiz: async (filter) => {
     set({ loading: true, error: null });
 
     try {
       const currentUser = getAuth().currentUser;
-
       if (!currentUser) {
         throw new Error('User not authenticated for quiz generation.');
       }
 
-      // ⭐ Get isAdmin status from authStore state ⭐
-      // We directly access the state using .getState() as we're outside a React component.
-      const { user: authUser } = useAuthStore.getState();
-      const isAdmin = authUser?.isAdmin || false; // Default to false if user is not loaded or not admin
+      // Prepare the callable function
+      // 'functions' is now properly imported and initialized
+      const callGenerateQuiz = httpsCallable<GenerateQuizCallableRequest, GenerateQuizCallableResponse>(functions, 'generateQuiz');
 
-      // Determine visibility before sending to cloud function
-      const quizVisibility: 'global' | 'private' = isAdmin ? 'global' : 'private';
-
-      // Send the filter, current user ID, and determined visibility to the Cloud Function
-      const response = await crossFetch(
-        'https://us-central1-sportsquiz-3bb45.cloudfunctions.net/generateQuiz',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            ...filter,
-            createdBy: currentUser.uid, // Always send the actual creator UID
-            visibility: quizVisibility, // ⭐ Pass visibility to the Cloud Function ⭐
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(errorData.error || 'Failed to generate quiz');
-      }
-      const { quiz } = await response.json();
-
-      // ✅ Validate questions
-      if (!quiz.questions || quiz.questions.length === 0) {
-        console.error("Quiz object received from function had no questions:", quiz);
-        throw new Error('Generated quiz has no questions (from server response)');
-      }
-
-      // The Cloud Function should ideally return the full Quiz object with all properties,
-      // including `visibility` and `createdBy` as it saved them.
-      // If the cloud function doesn't add it, you might need to manually add it here
-      // for the local state update, but ensure your cloud function saves it correctly.
-      const generatedQuizWithVisibility: Quiz = {
-        ...quiz,
-        visibility: quiz.visibility || quizVisibility, // Ensure visibility is set on the returned quiz
-        createdBy: quiz.createdBy || currentUser.uid, // Ensure createdBy is set
-        // createdAt would ideally be Timestamp from Firestore, but your type uses number.
-        // If your cloud function sets serverTimestamp, it will be a Timestamp object.
-        // You might need to convert it here or adjust your Quiz type's createdAt to Timestamp.
-        createdAt: quiz.createdAt || Date.now(), // Fallback if cloud function doesn't return it
+      // The payload structure matches the callable function's expected data.
+      // `userId` and `visibility` (if not explicitly set by admin) are handled server-side.
+      const payload: GenerateQuizCallableRequest = {
+        title: filter.title,
+        category: filter.category, // TypeScript now ensures this is a string due to the updated signature
+        difficulty: filter.difficulty,
+        numberOfQuestions: filter.numberOfQuestions, // Explicitly pass
+        team: filter.team,
+        event: filter.event,
+        country: filter.country,
+        visibility: filter.visibility // Pass if explicitly set by admin, otherwise undefined
       };
 
+      // Call the cloud function
+      const result = await callGenerateQuiz(payload);
+      const generatedQuiz = result.data.quiz;
 
-      // Instead of storing locally, we now rely on fetchQuizzes to get the latest
-      // A full refetch might be inefficient for a single new quiz.
-      // Consider adding the new quiz to the state directly, and then refetching if necessary.
-      // For now, let's keep the refetch as per the plan, but note this optimization.
-      // await get().fetchQuizzes(); // Removed this line, it might refetch unnecessary data
-      set((state) => ({
-        quizzes: [generatedQuizWithVisibility, ...state.quizzes], // Add the new quiz directly to the beginning
-        loading: false,
-      }));
+      if (!generatedQuiz || !generatedQuiz.questions || generatedQuiz.questions.length === 0) {
+        throw new Error('Generated quiz has no questions or is incomplete (from server response)');
+      }
 
-      return generatedQuizWithVisibility; // Return the created quiz
+      // Fetch quizzes for the current user's visibility after generation
+      await get().fetchQuizzes({ createdBy: currentUser.uid, visibility: 'private' });
+
+      set({ loading: false });
+      return generatedQuiz; // Return the full Quiz object
     } catch (err: any) {
-      set({ error: err.message || 'Error generating quiz', loading: false });
-      return null; // Return null on error
+      const errorMessage = err.message || 'Error generating quiz';
+      set({ error: errorMessage, loading: false });
+      // Re-throw to allow component to catch if needed for specific display
+      throw err;
     }
   },
 
-  /**
-   * 💾 Save quiz manually (if needed — not used after generateQuiz)
-   */
   saveQuiz: async (quiz: Quiz) => {
+    // This `saveQuiz` function is primarily used by the admin section's QuizForm
+    // for direct saving after generation, or manual saving.
+    // Ensure the quiz object received here has an 'id' from the generation step.
     try {
-      await setDoc(doc(db, 'quizzes', quiz.id), quiz);
-      // Refresh the list of quizzes
-      await get().fetchQuizzes();
+      // If quiz.id is not present, add a new document
+      if (!quiz.id) {
+          const docRef = await addDoc(collection(db, 'quizzes'), quiz);
+          quiz.id = docRef.id; // Assign the newly generated ID
+      } else {
+          // Otherwise, set the document with the existing ID
+          await setDoc(doc(db, 'quizzes', quiz.id), quiz);
+      }
+      // Re-fetch quizzes to update the list
+      await get().fetchQuizzes({}); // Fetch all quizzes for admin view
     } catch (error) {
       console.error('Error saving quiz:', error);
       set({ error: 'Error saving quiz' });
+      throw error; // Re-throw to propagate the error
     }
   },
 
-  /**
-   * 📦 Load a specific quiz by ID
-   */
   fetchQuizById: async (id: string) => {
     set({ loading: true, error: null });
     try {
       const quizDoc = await getDoc(doc(db, 'quizzes', id));
       if (quizDoc.exists()) {
-        const quizData = quizDoc.data() as Quiz;
-        set({ currentQuiz: quizData, loading: false });
+        const rawData = quizDoc.data() as RawQuizDocument;
+        // Convert Firestore Timestamp to milliseconds for client-side Quiz type
+        const createdAtMillis = rawData.createdAt instanceof Timestamp
+          ? rawData.createdAt.toMillis()
+          : (typeof rawData.createdAt === 'number' ? rawData.createdAt : Date.now()); // Fallback
+
+        set({
+          currentQuiz: {
+            id: quizDoc.id,
+            ...(rawData as Omit<Quiz, 'id' | 'createdAt'>),
+            createdAt: createdAtMillis,
+          } as Quiz,
+          loading: false,
+        });
       } else {
         set({ error: 'Quiz not found', loading: false });
       }
@@ -155,9 +169,6 @@ export const useQuizStore = create<QuizState>((set, get) => ({
     }
   },
 
-  /**
-   * 🧾 Fetch past attempts for a user
-   */
   fetchUserAttempts: async (userId) => {
     set({ loading: true, error: null });
     try {
@@ -169,45 +180,37 @@ export const useQuizStore = create<QuizState>((set, get) => ({
       );
       const querySnapshot = await getDocs(attemptsQuery);
       const attempts = querySnapshot.docs.map((doc) => {
-        const data = doc.data();
+        const rawData = doc.data() as RawQuizAttemptDocument;
+        // Convert Firestore Timestamp
+        const completedAtTimestamp = rawData.completedAt instanceof Timestamp
+          ? rawData.completedAt
+          : Timestamp.now(); // Fallback to current timestamp if not a Timestamp instance
+
         return {
           id: doc.id,
-          quizId: data.quizId,
-          userId: data.userId,
-          score: data.score,
-          totalQuestions: data.totalQuestions,
-          answers: data.answers,
-          timeSpent: data.timeSpent,
-          // ⭐ CRITICAL CHANGE: Ensure completedAt is treated as a Timestamp ⭐
-          // This conversion handles cases where data.completedAt might be a plain object from Firestore
-          // which needs to be converted back to a Timestamp if it's not already one.
-          completedAt: data.completedAt instanceof Timestamp
-            ? data.completedAt
-            : (new Timestamp(data.completedAt.seconds, data.completedAt.nanoseconds)),
-        };
-      }) as QuizAttempt[];
+          ...(rawData as Omit<QuizAttempt, 'id' | 'completedAt'>),
+          completedAt: completedAtTimestamp,
+        } as QuizAttempt;
+      });
       set({ quizAttempts: attempts, loading: false });
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : 'Error fetching attempts',
         loading: false,
       });
+      console.error('Error fetching attempts:', error);
     }
   },
 
-  /**
-   * ✅ Record quiz completion
-   */
   saveQuizAttempt: async (attempt) => {
     set({ loading: true, error: null });
     try {
-      // Ensure completedAt is a Firebase Timestamp when saving
       const attemptToSave = {
         ...attempt,
-        completedAt: Timestamp.now(), // Use Firebase's server Timestamp for consistency
+        completedAt: Timestamp.now(),
       };
       const attemptRef = await addDoc(collection(db, 'quizAttempts'), attemptToSave);
-      await get().fetchUserAttempts(attempt.userId); // Re-fetch user attempts
+      await get().fetchUserAttempts(attempt.userId);
       set({ loading: false });
       return attemptRef.id;
     } catch (error) {
@@ -219,64 +222,75 @@ export const useQuizStore = create<QuizState>((set, get) => ({
     }
   },
 
-  /**
-   * 📚 Fetches a list of quizzes with optional filtering
-   * ⭐ MODIFIED to accept new visibility and createdBy filters ⭐
-   */
-  fetchQuizzes: async (filter: QuizFilter = {}) => { // ⭐ Added default empty object for filter ⭐
+  fetchQuizzes: async (filter: QuizFilter = {}) => {
     set({ loading: true, error: null });
     try {
-      let q = query(collection(db, 'quizzes'));
+      let q: any = collection(db, 'quizzes');
 
-      if (filter.category) {
-        q = query(q, where('category', '==', filter.category));
-      }
-      if (filter.difficulty) {
-        q = query(q, where('difficulty', '==', filter.difficulty));
-      }
-      if (filter.team) {
-        q = query(q, where('team', '==', filter.team));
-      }
-      if (filter.event) {
-        q = query(q, where('event', '==', filter.event));
-      }
-      if (filter.country) {
-        q = query(q, where('country', '==', filter.country));
-      }
-      // Assuming you want to search by title, an exact match is usually simple.
-      // For more complex text search, you'd need a dedicated search service (e.g., Algolia, ElasticSearch)
-      if (filter.title) {
-        q = query(q, where('title', '==', filter.title));
-      }
+      if (filter.category) { q = query(q, where('category', '==', filter.category)); }
+      if (filter.difficulty) { q = query(q, where('difficulty', '==', filter.difficulty)); }
+      if (filter.team) { q = query(q, where('team', '==', filter.team)); }
+      if (filter.event) { q = query(q, where('event', '==', filter.event)); }
+      if (filter.country) { q = query(q, where('country', '==', filter.country)); }
+      if (filter.title) { q = query(q, where('title', '==', filter.title)); }
 
-      // ⭐ NEW: Filter by visibility ⭐
-      if (filter.visibility) {
-        q = query(q, where('visibility', '==', filter.visibility));
-      }
+      if (filter.visibility) { q = query(q, where('visibility', '==', filter.visibility)); }
+      if (filter.createdBy) { q = query(q, where('createdBy', '==', filter.createdBy)); }
 
-      // ⭐ NEW: Filter by createdBy ⭐
-      if (filter.createdBy) {
-        q = query(q, where('createdBy', '==', filter.createdBy));
-      }
-
-      // Add ordering and limit if desired, e.g., orderBy('createdAt', 'desc')
-      q = query(q, orderBy('createdAt', 'desc')); // Order by creation date descending
-      q = query(q, limit(20)); // Limit to 20 quizzes for browse page (adjust as needed)
+      q = query(q, orderBy('createdAt', 'desc'));
+      q = query(q, limit(20));
 
       const querySnapshot = await getDocs(q);
-      const fetchedQuizzes = querySnapshot.docs.map((doc) => ({
-        id: doc.id,
-        // Ensure that createdAt (number) and visibility are correctly typed from Firestore data
-        // Firestore data will return 'createdAt' as a Timestamp. Convert it to a number if your Quiz type expects number.
-        // Or better, update Quiz type to use Timestamp. For now, assuming you still want number for createdAt.
-        createdAt: doc.data().createdAt?.toMillis ? doc.data().createdAt.toMillis() : Date.now(),
-        ...doc.data(), // Spread remaining fields (like title, category, visibility, createdBy etc.)
-      })) as Quiz[];
+      const fetchedQuizzes = querySnapshot.docs.map((doc) => {
+        const rawData = doc.data() as RawQuizDocument;
+
+        const createdAtMillis = rawData.createdAt instanceof Timestamp
+          ? rawData.createdAt.toMillis()
+          : (typeof rawData.createdAt === 'number' ? rawData.createdAt : Date.now());
+
+        return {
+          id: doc.id,
+          ...(rawData as Omit<Quiz, 'id' | 'createdAt'>),
+          createdAt: createdAtMillis,
+        } as Quiz;
+      });
       set({ quizzes: fetchedQuizzes, loading: false });
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Failed to fetch quizzes';
       set({ error: errorMsg, loading: false });
       console.error('Error fetching quizzes:', error);
+    }
+  },
+
+  updateQuizVisibility: async (quizId: string, newVisibility: 'global' | 'private') => {
+    set({ error: null });
+
+    try {
+      const auth = getAuth();
+      if (!auth.currentUser) {
+        throw new Error('User not authenticated.');
+      }
+
+      const { user: authUser } = useAuthStore.getState();
+      if (!authUser?.isAdmin) {
+        throw new Error('Unauthorized: Only administrators can change quiz visibility.');
+      }
+
+      const quizRef = doc(db, 'quizzes', quizId);
+      await setDoc(quizRef, { visibility: newVisibility }, { merge: true });
+
+      set((state) => ({
+        quizzes: state.quizzes.map((quiz) =>
+          quiz.id === quizId ? { ...quiz, visibility: newVisibility } : quiz
+        ),
+      }));
+
+      console.log(`Quiz ${quizId} visibility updated to ${newVisibility}`);
+    } catch (err: any) {
+      const errorMsg = err.message || 'Failed to update quiz visibility.';
+      set({ error: errorMsg });
+      console.error('Error updating quiz visibility:', err);
+      throw err;
     }
   },
 }));

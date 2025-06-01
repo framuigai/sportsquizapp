@@ -4,7 +4,8 @@ import { onCall } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin'; // For Firestore and FieldValue
 // No explicit logger import needed if you use functions.logger directly (which we do)
 
-const db = admin.firestore(); // Get Firestore instance
+// REMOVED: if (!admin.apps.length) { admin.initializeApp(); }
+// This initialization is handled globally in functions/src/index.ts
 
 // Define interfaces for clarity and type safety
 interface UserSelectedAnswerForFunction {
@@ -55,6 +56,10 @@ interface QuizAttemptData {
 
 // Cloud Function handler for submitting a quiz (using onCall from v2)
 export const submitQuiz = onCall({ region: 'us-central1' }, async (event) => {
+    // Initialize Firestore instance inside the function handler
+    // This ensures admin.initializeApp() has run.
+    const db = admin.firestore();
+
     const userId = event.auth?.uid;
     if (!userId) {
         throw new functions.https.HttpsError('unauthenticated', 'Authentication required. User not logged in.');

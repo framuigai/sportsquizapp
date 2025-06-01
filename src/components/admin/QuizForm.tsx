@@ -1,3 +1,4 @@
+// src/components/admin/QuizForm.tsx
 import React, { useState } from 'react';
 import { AlertCircle } from 'lucide-react';
 import Button from '../ui/Button';
@@ -9,6 +10,7 @@ interface QuizFormState {
   title: string;
   category: string;
   difficulty: 'easy' | 'medium' | 'hard';
+  numberOfQuestions: number; // Added for admin form
   event?: string;
   team?: string;
   country?: string;
@@ -17,12 +19,13 @@ interface QuizFormState {
 
 const QuizForm: React.FC = () => {
   const { user } = useAuthStore();
-  const { generateQuiz, saveQuiz, loading, error } = useQuizStore();
+  const { generateQuiz, saveQuiz, loading, error } = useQuizStore(); // generateQuiz is now responsible for saving via callable function
 
   const [state, setState] = useState<QuizFormState>({
     title: '',
     category: '',
     difficulty: 'medium',
+    numberOfQuestions: 5, // Default for admin-generated quizzes too
     event: '',
     team: '',
     country: '',
@@ -31,7 +34,10 @@ const QuizForm: React.FC = () => {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setState((prev) => ({ ...prev, [name]: value }));
+    setState((prev) => ({
+      ...prev,
+      [name]: name === 'numberOfQuestions' ? parseInt(value) || 0 : value, // Parse as integer
+    }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -41,28 +47,43 @@ const QuizForm: React.FC = () => {
       setState(prev => ({ ...prev, resultMessage: 'Category is required' }));
       return;
     }
+    if (state.numberOfQuestions < 1 || state.numberOfQuestions > 20) {
+      setState(prev => ({ ...prev, resultMessage: 'Number of questions must be between 1 and 20' }));
+      return;
+    }
 
     try {
-      // Generate the quiz
-      const quiz = await generateQuiz({
+      // Generate the quiz using the store action, explicitly marking it as 'global'
+      const generatedQuiz = await generateQuiz({
         title: state.title,
         category: state.category,
         difficulty: state.difficulty,
+        numberOfQuestions: state.numberOfQuestions, // Pass number of questions
         team: state.team,
         event: state.event,
         country: state.country,
+        visibility: 'global', // ⭐ ADMIN-SPECIFIC: Mark as global ⭐
       });
 
-      // Save the quiz to Firestore
-      await saveQuiz(quiz);
+      // The generateQuiz callable function now saves the quiz directly to Firestore.
+      // We don't need a separate saveQuiz call here, as the function handles it.
+      // Instead, we just show a success message based on the returned quiz.
 
       setState(prev => ({
         ...prev,
-        resultMessage: quiz.questions?.length
-          ? `Successfully generated quiz with ${quiz.questions.length} questions!`
-          : 'Generated quiz had no questions'
+        resultMessage: generatedQuiz.questions?.length
+          ? `Successfully generated global quiz "${generatedQuiz.title}" with ${generatedQuiz.questions.length} questions!`
+          : 'Generated quiz had no questions',
+        // Clear form fields after successful generation (optional)
+        title: '',
+        category: '',
+        difficulty: 'medium',
+        numberOfQuestions: 5,
+        event: '',
+        team: '',
+        country: '',
       }));
-           
+
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to generate quiz';
       setState(prev => ({ ...prev, resultMessage: errorMessage }));
@@ -110,6 +131,17 @@ const QuizForm: React.FC = () => {
             </select>
           </div>
           <Input
+            label="Number of Questions (1-20)" // Added this input
+            name="numberOfQuestions"
+            type="number"
+            value={state.numberOfQuestions}
+            onChange={handleChange}
+            placeholder="e.g. 5"
+            min={1}
+            max={20}
+            required
+          />
+          <Input
             label="Event (optional)"
             name="event"
             value={state.event}
@@ -135,7 +167,7 @@ const QuizForm: React.FC = () => {
 
       <div className="flex justify-end">
         <Button type="submit" isLoading={loading}>
-          Generate Quiz
+          Generate Global Quiz
         </Button>
       </div>
     </form>

@@ -1,21 +1,43 @@
-import { onRequest } from "firebase-functions/v2/https";
-import * as logger from "firebase-functions/logger";
-import { getFirestore } from "firebase-admin/firestore";
-import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
+// functions/src/generateQuiz.ts
+// Changed import from v1 to v2 for onCall
+import { onCall, CallableRequest } from 'firebase-functions/v2/https';
+// Keep this import for functions.logger and functions.https.HttpsError
+import * as functions from 'firebase-functions';
+import * as admin from 'firebase-admin';
 import { GoogleGenerativeAI, GenerateContentRequest } from "@google/generative-ai";
+import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 
+// Securely fetch Gemini API key
+let geminiApiKey: string | undefined;
+async function getGeminiApiKey(): Promise<string | undefined> {
+  if (geminiApiKey) return geminiApiKey; // Memoize the key
+  const client = new SecretManagerServiceClient();
+  try {
+    const [version] = await client.accessSecretVersion({
+      name: 'projects/sportsquiz-3bb45/secrets/GEMINI_API_KEY/versions/latest'
+    });
+    geminiApiKey = version.payload?.data?.toString();
+    return geminiApiKey;
+  } catch (error: unknown) {
+    let errorMessage = 'Unknown error accessing Secret Manager';
+    if (error instanceof Error) {
+      errorMessage = error.message;
+    }
+    functions.logger.error("Failed to access Secret Manager for Gemini API Key:", errorMessage);
+    return undefined;
+  }
+}
 
-const db = getFirestore();
-
-// Define expected request body
-interface QuizGenerationRequestBody {
+// Define expected request body from client for onCall
+interface QuizGenerationCallableRequest {
   title?: string;
   category: string;
   difficulty?: 'easy' | 'medium' | 'hard';
+  numberOfQuestions: number;
   team?: string;
   event?: string;
   country?: string;
-  createdBy?: string;
+  visibility?: 'global' | 'private'; // Optional visibility for admins
 }
 
 // Define Gemini output structure
@@ -25,133 +47,167 @@ interface GeminiQuestion {
   answer: string;
 }
 
-// Securely fetch Gemini API key
-async function getGeminiApiKey(): Promise<string | undefined> {
-  const client = new SecretManagerServiceClient();
-  const [version] = await client.accessSecretVersion({
-    name: 'projects/sportsquiz-3bb45/secrets/GEMINI_API_KEY/versions/latest'
-  });
-  return version.payload?.data?.toString();
-}
+// Use onCall from v2, with corrected signature
+export const generateQuiz = onCall({ region: 'us-central1' }, async (request: CallableRequest<QuizGenerationCallableRequest>) => {
+  // Initialize Firestore instance inside the function handler
+  // This ensures admin.initializeApp() has run.
+  const db = admin.firestore();
 
-// Cloud Function handler
-export const generateQuiz = onRequest({ cors: true }, async (req, res) => {
+  // Destructure data and auth from the single request object
+  const { data } = request;
+  const auth = request.auth; // auth is now directly on request, and can be undefined
+
+  // 1. Authentication Check
+  if (!auth) { // Check if auth exists
+    throw new functions.https.HttpsError(
+      'unauthenticated',
+      'The function must be called while authenticated.'
+    );
+  }
+
+  const userId = auth.uid; // Access uid from auth
+
+  // ⭐ NEW: Fetch user's custom claims to check for admin status ⭐
+  let isAdmin = false;
   try {
-    const {
-      title,
-      category,
-      difficulty,
-      team,
-      event,
-      country,
-      createdBy
-    } = req.body as QuizGenerationRequestBody;
-
-    if (!category || typeof category !== 'string' || category.trim() === '') {
-      logger.warn("Invalid or missing category in request:", req.body);
-      res.status(400).json({ error: "Category is required and must be a non-empty string." });
-      return;
+    const userRecord = await admin.auth().getUser(userId);
+    isAdmin = userRecord.customClaims ? (userRecord.customClaims as { admin?: boolean }).admin === true : false;
+  } catch (err: unknown) {
+    let errorMessage = 'Unknown error fetching custom claims';
+    if (err instanceof Error) {
+      errorMessage = err.message;
     }
+    functions.logger.warn(`Could not fetch custom claims for user ${userId}: ${errorMessage}`);
+  }
 
-    const apiKey = await getGeminiApiKey();
-    if (!apiKey) {
-      logger.error("Gemini API key not found.");
-      res.status(500).json({ error: 'Gemini API key not found' });
-      return;
-    }
+  // 2. Validate input from data (payload)
+  const { category, difficulty, numberOfQuestions, team, event, country, title } = data;
+  const requestedVisibility = data.visibility || 'private';
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  if (!category || typeof category !== 'string' || category.trim() === '') {
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      'Category is required and must be a non-empty string.'
+    );
+  }
+  if (!numberOfQuestions || typeof numberOfQuestions !== 'number' || numberOfQuestions < 1 || numberOfQuestions < 1 || numberOfQuestions > 20) { // Corrected: should be 'numberOfQuestions < 1 || numberOfQuestions > 20' not 'numberOfQuestions < 1 || numberOfQuestions < 1'
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      'Number of questions is required and must be between 1 and 20.'
+    );
+  }
 
-    const promptText = `You are a professional sports quiz generator. Generate exactly 5 multiple-choice questions about ${category}${difficulty ? ` with ${difficulty} difficulty` : ""}${team ? ` focused on ${team}` : ""}${event ? ` about the ${event}` : ""}${country ? ` in ${country}` : ""}.
+  // 3. Determine final visibility based on user role and request
+  const finalVisibility: 'private' | 'global' =
+    isAdmin && requestedVisibility === 'global' ? 'global' : 'private';
+
+  const apiKey = await getGeminiApiKey();
+  if (!apiKey) {
+    functions.logger.error("Gemini API key not found during function execution.");
+    throw new functions.https.HttpsError('internal', 'Server configuration error: Gemini API key missing.');
+  }
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+  const promptText = `You are a professional sports quiz generator. Generate exactly ${numberOfQuestions} multiple-choice questions about ${category}${difficulty ? ` with ${difficulty} difficulty` : ""}${team ? ` focused on ${team}` : ""}${event ? ` about the ${event}` : ""}${country ? ` in ${country}` : ""}.
 
 Each question must have:
 - A field "question" (string),
 - A field "options" (array of 4 strings formatted "A. ..", "B. .." etc.),
 - A field "answer" (string, one of "A", "B", "C", or "D")
 
-Return ONLY a JSON array of 5 such objects, parsable by JSON.parse(). DO NOT add explanations, markdown, or extra text.`;
+Return ONLY a JSON array of ${numberOfQuestions} such objects, parsable by JSON.parse(). DO NOT add explanations, markdown, or extra text.`;
 
-    const generateContentRequest: GenerateContentRequest = {
-      contents: [{ role: 'user', parts: [{ text: promptText }] }],
-      generationConfig: {
-        responseMimeType: "application/json",
-      },
-    };
+  const generateContentRequest: GenerateContentRequest = {
+    contents: [{ role: 'user', parts: [{ text: promptText }] }],
+    generationConfig: {
+      responseMimeType: "application/json",
+    },
+  };
 
+  let text: string;
+  try {
     const result = await model.generateContent(generateContentRequest);
     const response = result.response;
-    const rawText = await response.text();
-
-    logger.info("RAW GEMINI RESPONSE:", rawText);
-
-    let cleanedText = rawText.trim();
-    if (cleanedText.startsWith('```json')) cleanedText = cleanedText.slice(7);
-    if (cleanedText.endsWith('```')) cleanedText = cleanedText.slice(0, -3);
-    cleanedText = cleanedText.trim();
-
-    let questionsRaw: GeminiQuestion[];
-    try {
-      questionsRaw = JSON.parse(cleanedText);
-    } catch (e) {
-      logger.error("Failed to parse JSON from Gemini:", { rawOutput: cleanedText, parseError: e });
-      res.status(500).json({ error: "Invalid JSON format from Gemini." });
-      return;
+    text = await response.text();
+  } catch (aiError: unknown) {
+    let errorMessage = 'Unknown AI error';
+    if (aiError instanceof Error) {
+      errorMessage = aiError.message;
+    } else if (typeof aiError === 'string') {
+      errorMessage = aiError;
     }
-
-    if (!Array.isArray(questionsRaw) || questionsRaw.length !== 5) {
-      logger.error("Expected 5 questions but got:", questionsRaw.length, questionsRaw);
-      res.status(500).json({ error: "Expected exactly 5 quiz questions from Gemini." });
-      return;
-    }
-
-    const invalidQuestions = questionsRaw.filter((q, index) => {
-      const isValid =
-        typeof q.question === 'string' && q.question.trim().length > 0 &&
-        Array.isArray(q.options) && q.options.length === 4 &&
-        q.options.every(opt => typeof opt === 'string' && opt.trim().length > 0) &&
-        typeof q.answer === 'string' && ['A', 'B', 'C', 'D'].includes(q.answer);
-
-      if (!isValid) {
-        logger.error(`Invalid question at index ${index}:`, q);
-      }
-
-      return !isValid;
-    });
-
-    if (invalidQuestions.length > 0) {
-      res.status(500).json({ error: `Some questions failed validation: ${invalidQuestions.length}` });
-      return;
-    }
-
-    const questions = questionsRaw.map((q, i) => ({
-      id: `q${i + 1}`,
-      text: q.question,
-      type: 'multiple_choice',
-      options: q.options,
-      correctAnswer: q.answer
-    }));
-
-    const quiz = {
-      id: db.collection('quizzes').doc().id,
-      title: title || `Generated Quiz - ${category}`,
-      category,
-      difficulty: difficulty || 'medium',
-      event: event || '',
-      team: team || '',
-      country: country || '',
-      questions,
-      createdAt: Date.now(),
-      createdBy: createdBy || 'anonymous'
-    };
-
-    logger.info("Saving quiz to Firestore:", JSON.stringify(quiz, null, 2));
-    await db.collection('quizzes').doc(quiz.id).set(quiz);
-
-    res.status(200).json({ quiz });
-  } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : "Unknown error occurred";
-    logger.error("Quiz generation failed:", { message: errorMessage, stack: err instanceof Error ? err.stack : 'No stack' });
-    res.status(500).json({ error: errorMessage });
+    functions.logger.error("Gemini API call failed:", errorMessage);
+    throw new functions.https.HttpsError('internal', 'Failed to generate quiz content from AI.');
   }
+
+  functions.logger.info("RAW GEMINI RESPONSE:", text);
+
+  let cleanedText = text.trim();
+  if (cleanedText.startsWith('```json')) cleanedText = cleanedText.slice(7);
+  if (cleanedText.endsWith('```')) cleanedText = cleanedText.slice(0, -3);
+  cleanedText = cleanedText.trim();
+
+  let questionsRaw: GeminiQuestion[];
+  try {
+    questionsRaw = JSON.parse(cleanedText);
+  } catch (e: unknown) {
+    let errorMessage = 'Unknown JSON parse error';
+    if (e instanceof Error) {
+      errorMessage = e.message;
+    }
+    functions.logger.error("Failed to parse JSON from Gemini:", { rawOutput: cleanedText, parseError: errorMessage });
+    throw new functions.https.HttpsError('internal', "Invalid JSON format from AI. Please try again.");
+  }
+
+  if (!Array.isArray(questionsRaw) || questionsRaw.length !== numberOfQuestions) {
+    functions.logger.error(`Expected ${numberOfQuestions} questions but got:`, questionsRaw.length, questionsRaw);
+    throw new functions.https.HttpsError('internal', `AI did not return the expected number of questions or format.`);
+  }
+
+  const invalidQuestions = questionsRaw.filter((q, index) => {
+    const isValid =
+      typeof q.question === 'string' && q.question.trim().length > 0 &&
+      Array.isArray(q.options) && q.options.length === 4 &&
+      q.options.every(opt => typeof opt === 'string' && opt.trim().length > 0) &&
+      typeof q.answer === 'string' && ['A', 'B', 'C', 'D'].includes(q.answer);
+
+    if (!isValid) {
+      functions.logger.error(`Invalid question at index ${index} from AI:`, q);
+    }
+    return !isValid;
+  });
+
+  if (invalidQuestions.length > 0) {
+    throw new functions.https.HttpsError('internal', `Some generated questions were invalid.`);
+  }
+
+  const questions = questionsRaw.map((q, i) => ({
+    id: `q${i + 1}`,
+    text: q.question,
+    type: 'multiple_choice',
+    options: q.options,
+    correctAnswer: q.answer
+  }));
+
+  const quizId = db.collection('quizzes').doc().id;
+  const quizToSave = {
+    id: quizId,
+    title: title || `Generated Quiz - ${category}`,
+    category,
+    difficulty: difficulty || 'medium',
+    event: event || '',
+    team: team || '',
+    country: country || '',
+    questions,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdBy: userId,
+    visibility: finalVisibility,
+  };
+
+  functions.logger.info("Saving quiz to Firestore:", JSON.stringify(quizToSave, null, 2));
+  await db.collection('quizzes').doc(quizId).set(quizToSave);
+
+  return { quiz: quizToSave };
 });

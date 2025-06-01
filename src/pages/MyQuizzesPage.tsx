@@ -26,6 +26,8 @@ const MyQuizzesPage: React.FC = () => {
     }
 
     // If user is logged in, fetch their private quizzes
+    // This query now correctly aligns with the new rule: all generated quizzes start as 'private'
+    // and only the creator (user.id) can see their own private quizzes here.
     fetchQuizzes({ createdBy: user.id, visibility: 'private' });
 
     // Optional: Cleanup function if you had subscriptions, though not strictly needed here
@@ -57,7 +59,8 @@ const MyQuizzesPage: React.FC = () => {
         My Private Quizzes
       </h1>
       <p className="text-center text-slate-600 mb-8 max-w-2xl mx-auto">
-        Here are the quizzes you've personally generated. These quizzes are private and only visible to you.
+        Here are the quizzes you've personally generated. These quizzes are private and only visible to you,
+        until an admin makes them global for everyone to see.
       </p>
 
       {/* 3. Display loading state for quiz fetching */}
