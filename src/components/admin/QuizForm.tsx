@@ -174,4 +174,5 @@ const QuizForm: React.FC = () => {
   );
 };
 
+
 export default QuizForm;
