@@ -1,11 +1,13 @@
 // functions/src/submitQuiz.ts
-import * as functions from 'firebase-functions'; // Still needed for functions.https.HttpsError
+import * as functions from 'firebase-functions';
 import { onCall } from 'firebase-functions/v2/https';
-import * as admin from 'firebase-admin'; // For Firestore and FieldValue
-// No explicit logger import needed if you use functions.logger directly (which we do)
 
-// REMOVED: if (!admin.apps.length) { admin.initializeApp(); }
-// This initialization is handled globally in functions/src/index.ts
+// 🛑🛑🛑 IMPORTANT FIX FOR "admin.firestore is not a function" (if it occurs here) 🛑🛑🛑
+// Consistent modular imports for Firebase Admin SDK Services
+import { getApp } from 'firebase-admin/app'; // To get the already initialized app instance
+import { getFirestore, FieldValue } from 'firebase-admin/firestore'; // Import getFirestore and FieldValue specifically
+// We don't need getAuth here, so we won't import it unless it's used.
+// 🛑🛑🛑 END IMPORTANT FIX 🛑🛑🛑
 
 // Define interfaces for clarity and type safety
 interface UserSelectedAnswerForFunction {
@@ -50,15 +52,16 @@ interface QuizAttemptData {
         isCorrect: boolean;
     }[];
     timeSpent: number;
-    completedAt: admin.firestore.FieldValue; // Use server timestamp for consistency and accuracy
+    completedAt: FieldValue; // Use FieldValue from modular import
 }
 
 
 // Cloud Function handler for submitting a quiz (using onCall from v2)
 export const submitQuiz = onCall({ region: 'us-central1' }, async (event) => {
-    // Initialize Firestore instance inside the function handler
-    // This ensures admin.initializeApp() has run.
-    const db = admin.firestore();
+    // 🛑 FIX: Get the initialized app and then services from it 🛑
+    const app = getApp(); // Get the default Firebase app initialized in index.ts
+    const db = getFirestore(app); // Get Firestore instance from the app
+    // 🛑 END FIX 🛑
 
     const userId = event.auth?.uid;
     if (!userId) {
@@ -157,7 +160,7 @@ export const submitQuiz = onCall({ region: 'us-central1' }, async (event) => {
             totalQuestions: totalQuestions,
             answers: attemptDetails,
             timeSpent: timeSpentSeconds,
-            completedAt: admin.firestore.FieldValue.serverTimestamp(),
+            completedAt: FieldValue.serverTimestamp(), // 🛑 FIX: Use imported FieldValue 🛑
         };
 
         await newAttemptRef.set(quizAttemptData);

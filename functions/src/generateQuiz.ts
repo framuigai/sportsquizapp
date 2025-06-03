@@ -3,7 +3,22 @@
 import { onCall, CallableRequest } from 'firebase-functions/v2/https';
 // Keep this import for functions.logger and functions.https.HttpsError
 import * as functions from 'firebase-functions';
-import * as admin from 'firebase-admin';
+
+// 🛑🛑🛑 IMPORTANT FIX FOR "admin.firestore is not a function" 🛑🛑🛑
+// Instead of importing all of 'firebase-admin' and relying on default exports,
+// we import specific functions from their modular paths.
+// 'getApp()' is used to retrieve the default app instance that was initialized in index.ts.
+import { getApp } from 'firebase-admin/app';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore'; // Specifically import getFirestore and FieldValue
+import { getAuth } from 'firebase-admin/auth'; // Specifically import getAuth
+
+// We keep the main 'admin' import for things like admin.firestore.FieldValue,
+// but it's often better to import FieldValue directly as shown above.
+// For consistency, let's stick with the modular imports for services.
+// Note: 'admin' itself is still useful for types or if you absolutely need the whole namespace for other utilities not covered by modular imports.
+// For this error, the key is using getFirestore() and getAuth().
+// 🛑🛑🛑 END IMPORTANT FIX 🛑🛑🛑
+
 import { GoogleGenerativeAI, GenerateContentRequest } from "@google/generative-ai";
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 
@@ -49,28 +64,30 @@ interface GeminiQuestion {
 
 // Use onCall from v2, with corrected signature
 export const generateQuiz = onCall({ region: 'us-central1' }, async (request: CallableRequest<QuizGenerationCallableRequest>) => {
-  // Initialize Firestore instance inside the function handler
-  // This ensures admin.initializeApp() has run.
-  const db = admin.firestore();
+  // 🛑🛑🛑 FIX: Get the initialized app and then services from it 🛑🛑🛑
+  const app = getApp(); // Get the default Firebase app initialized in index.ts
+  const db = getFirestore(app); // Get Firestore instance from the app
+  const authService = getAuth(app); // Get Auth instance from the app (renamed to avoid conflict with request.auth)
+  // 🛑🛑🛑 END FIX 🛑🛑🛑
 
   // Destructure data and auth from the single request object
   const { data } = request;
-  const auth = request.auth; // auth is now directly on request, and can be undefined
+  const requestAuth = request.auth; // auth from the client request
 
   // 1. Authentication Check
-  if (!auth) { // Check if auth exists
+  if (!requestAuth) { // Check if auth exists from the request
     throw new functions.https.HttpsError(
       'unauthenticated',
       'The function must be called while authenticated.'
     );
   }
 
-  const userId = auth.uid; // Access uid from auth
+  const userId = requestAuth.uid; // Access uid from auth
 
   // ⭐ NEW: Fetch user's custom claims to check for admin status ⭐
   let isAdmin = false;
   try {
-    const userRecord = await admin.auth().getUser(userId);
+    const userRecord = await authService.getUser(userId); // 🛑 FIX: Use authService here 🛑
     isAdmin = userRecord.customClaims ? (userRecord.customClaims as { admin?: boolean }).admin === true : false;
   } catch (err: unknown) {
     let errorMessage = 'Unknown error fetching custom claims';
@@ -90,7 +107,8 @@ export const generateQuiz = onCall({ region: 'us-central1' }, async (request: Ca
       'Category is required and must be a non-empty string.'
     );
   }
-  if (!numberOfQuestions || typeof numberOfQuestions !== 'number' || numberOfQuestions < 1 || numberOfQuestions < 1 || numberOfQuestions > 20) { // Corrected: should be 'numberOfQuestions < 1 || numberOfQuestions > 20' not 'numberOfQuestions < 1 || numberOfQuestions < 1'
+  // Corrected the redundant condition
+  if (!numberOfQuestions || typeof numberOfQuestions !== 'number' || numberOfQuestions < 1 || numberOfQuestions > 20) {
     throw new functions.https.HttpsError(
       'invalid-argument',
       'Number of questions is required and must be between 1 and 20.'
@@ -201,7 +219,7 @@ Return ONLY a JSON array of ${numberOfQuestions} such objects, parsable by JSON.
     team: team || '',
     country: country || '',
     questions,
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdAt: FieldValue.serverTimestamp(), // 🛑 FIX: Use imported FieldValue 🛑
     createdBy: userId,
     visibility: finalVisibility,
   };
