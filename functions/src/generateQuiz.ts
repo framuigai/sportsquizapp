@@ -127,16 +127,19 @@ export const generateQuiz = onCall({ region: 'us-central1' }, async (request: Ca
   // --- MODIFICATION 3: Dynamically construct the Gemini prompt ---
   let questionFormatInstructions: string;
   let responseFormatInstructions: string;
-  let answerChoiceOptions: string; // To specify options for validation later
+  // REMOVE 'answerChoiceOptions' declaration, as it's not used directly
+  // let answerChoiceOptions: string; // To specify options for validation later
+
+  let expectedAnswers: string[]; // Define this to use for validation
 
   if (quizType === 'multiple_choice') {
     questionFormatInstructions = `multiple-choice questions. Each question must have exactly 4 options.`;
     responseFormatInstructions = `question (string), options (array of 4 strings, e.g., ["A. Option 1", "B. Option 2", "C. Option 3", "D. Option 4"]), and answer (string, one of "A", "B", "C", or "D").`;
-    answerChoiceOptions = `['A', 'B', 'C', 'D']`;
+    expectedAnswers = ['A', 'B', 'C', 'D']; // Use this for validation
   } else if (quizType === 'true_false') {
     questionFormatInstructions = `True/False questions. Each question must be a statement that is either definitively True or False.`;
     responseFormatInstructions = `question (string), options (array containing ONLY "True" and "False"), and answer (string, either "True" or "False").`;
-    answerChoiceOptions = `['True', 'False']`;
+    expectedAnswers = ['True', 'False']; // Use this for validation
   } else {
     // This case should ideally be caught by validation above, but as a fallback:
     throw new functions.https.HttpsError('invalid-argument', `Unsupported quizType: ${quizType}.`);
@@ -196,14 +199,16 @@ Return ONLY a JSON array of ${numberOfQuestions} such objects, parsable by JSON.
   // --- MODIFICATION 4: Update question validation and mapping for quizType ---
   const invalidQuestions = questionsRaw.filter((q, index) => {
     let isValid = typeof q.question === 'string' && q.question.trim().length > 0 &&
-                  Array.isArray(q.options) && q.options.every(opt => typeof opt === 'string' && opt.trim().length > 0);
+      Array.isArray(q.options) && q.options.every(opt => typeof opt === 'string' && opt.trim().length > 0);
 
     if (quizType === 'multiple_choice') {
-      isValid = isValid && q.options.length === 4 && ['A', 'B', 'C', 'D'].includes(q.answer);
+      // Use expectedAnswers for validation here
+      isValid = isValid && q.options.length === 4 && expectedAnswers.includes(q.answer);
     } else if (quizType === 'true_false') {
+      // Use expectedAnswers for validation here
       isValid = isValid && q.options.length === 2 &&
-                (q.options[0] === 'True' && q.options[1] === 'False' || q.options[0] === 'False' && q.options[1] === 'True') &&
-                ['True', 'False'].includes(q.answer);
+        (q.options[0] === 'True' && q.options[1] === 'False' || q.options[0] === 'False' && q.options[1] === 'True') &&
+        expectedAnswers.includes(q.answer);
     }
 
     if (!isValid) {
@@ -216,7 +221,7 @@ Return ONLY a JSON array of ${numberOfQuestions} such objects, parsable by JSON.
     throw new functions.https.HttpsError('internal', `Some generated questions were invalid for type ${quizType}.`);
   }
 
-  const questions = questionsRaw.map((q, i) => ({
+  const questions = questionsRaw.map((q) => ({ // REMOVED 'i' from here as it's unused
     id: db.collection('quizzes').doc().id, // Generate unique ID for each question
     text: q.question,
     type: quizType, // ✅ NEW: Assign the generated quizType to each question
