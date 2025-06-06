@@ -1,38 +1,15 @@
 // src/pages/QuizPage.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react'; // Removed useState
 import { useParams, useNavigate } from 'react-router-dom';
 import { AlertCircle } from 'lucide-react';
-import QuizQuestion from '../components/quiz/QuizQuestion';
-import QuizResult from '../components/quiz/QuizResult';
 import Button from '../components/ui/Button';
 import { useQuizStore } from '../store/quizStore';
 import { useAuthStore } from '../store/authStore';
-import { QuizAttempt } from '../types'; // Removed QuizQuestionType import here
-import { submitQuizCallable } from '../firebase/functions.ts';
-import { Timestamp } from 'firebase/firestore';
+// ⭐ NEW IMPORT: Import the new QuizPlayer component ⭐
+import QuizPlayer from '../components/quiz/QuizPlayer'; 
 
-// Define types for data exchanged with the backend
-interface BackendSubmitResponse {
-  message: string;
-  score: {
-    correct: number;
-    incorrect: number;
-    total: number;
-  };
-  attemptId: string;
-  reviewDetails: {
-    questionId: string;
-    selectedOption: string;
-    correctOption: string; // This is 'A', 'B', 'True', 'False'
-    isCorrect: boolean;
-  }[];
-  timeSpentSeconds: number;
-}
-
-interface UserSelectedAnswerForBackend {
-  questionId: string;
-  selectedOption: string;
-}
+// Removed all types, state, and logic related to quiz playing from here.
+// They are now in QuizPlayer.tsx
 
 const QuizPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -40,87 +17,26 @@ const QuizPage: React.FC = () => {
   const { currentQuiz, loading, error, fetchQuizById } = useQuizStore();
   const { user, isInitialized } = useAuthStore();
 
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [answers, setAnswers] = useState<UserSelectedAnswerForBackend[]>([]);
-  const [quizCompleted, setQuizCompleted] = useState(false);
-  const [quizStartTime, setQuizStartTime] = useState(Date.now());
-  const [quizAttempt, setQuizAttempt] = useState<QuizAttempt | null>(null);
-
   useEffect(() => {
+    // Only fetch the quiz by ID
     if (id) {
       fetchQuizById(id);
-      setQuizStartTime(Date.now());
     }
   }, [id, fetchQuizById]);
 
   useEffect(() => {
+    // Keep authentication check
     if (isInitialized && !user) {
       navigate('/login');
     }
   }, [isInitialized, user, navigate]);
 
-  const handleAnswer = (selectedOption: string) => {
-    if (!currentQuiz) return;
-
-    const question = currentQuiz.questions[currentQuestionIndex];
-
-    const updatedAnswers: UserSelectedAnswerForBackend[] = [...answers, {
-      questionId: question.id,
-      selectedOption: selectedOption,
-    }];
-    setAnswers(updatedAnswers);
-
-    if (currentQuestionIndex < currentQuiz.questions.length - 1) {
-      setCurrentQuestionIndex(currentQuestionIndex + 1);
-    } else {
-      completeQuiz(updatedAnswers);
-    }
-  };
-
-  const completeQuiz = async (finalAnswers: UserSelectedAnswerForBackend[]) => {
-    if (!currentQuiz || !user) {
-      console.warn("Attempted to complete quiz without currentQuiz or user data.");
-      return;
-    }
-
-    try {
-      const result = await submitQuizCallable({
-        quizId: currentQuiz.id,
-        userAnswers: finalAnswers,
-        quizStartTime: quizStartTime,
-      });
-
-      const responseData = result.data as BackendSubmitResponse;
-      console.log('Quiz submission response:', responseData);
-
-      const newQuizAttempt: QuizAttempt = {
-        id: responseData.attemptId,
-        quizId: currentQuiz.id,
-        userId: user.id,
-        score: responseData.score.correct,
-        totalQuestions: responseData.score.total,
-        answers: responseData.reviewDetails.map(detail => ({
-          questionId: detail.questionId,
-          userAnswer: detail.selectedOption,
-          correctAnswer: detail.correctOption,
-          isCorrect: detail.isCorrect,
-        })),
-        completedAt: Timestamp.now(),
-        timeSpent: responseData.timeSpentSeconds,
-      };
-
-      setQuizAttempt(newQuizAttempt);
-      setQuizCompleted(true);
-    } catch (err: any) {
-      console.error('Error submitting quiz:', err);
-      alert(`Failed to submit quiz: ${err.message || 'Unknown error'}`);
-    }
-  };
-
+  // Handle loading state for fetching the quiz
   if (loading) {
     return <div className="text-center py-8">Loading quiz...</div>;
   }
 
+  // Handle error state for fetching the quiz
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-screen text-red-500">
@@ -134,6 +50,7 @@ const QuizPage: React.FC = () => {
     );
   }
 
+  // Handle case where quiz is not found after loading
   if (!currentQuiz) {
     return (
       <div className="flex flex-col items-center justify-center h-screen text-slate-600">
@@ -147,44 +64,24 @@ const QuizPage: React.FC = () => {
     );
   }
 
-  if (quizCompleted && quizAttempt) {
-    return (
-      <QuizResult
-        quizAttempt={quizAttempt}
-        quizTitle={currentQuiz.title}
-        onRetake={() => {
-          setQuizCompleted(false);
-          setCurrentQuestionIndex(0);
-          setAnswers([]);
-          setQuizAttempt(null);
-          setQuizStartTime(Date.now()); // Reset timer
-        }}
-        onViewQuizzes={() => navigate('/quizzes')}
-        // ⭐ CRITICAL CHANGE: Pass the current quiz's questions ⭐
-        quizQuestions={currentQuiz.questions}
-      />
-    );
-  }
-
+  // ⭐ The main change: Render QuizPlayer and pass the fetched quizData ⭐
   return (
-    <QuizQuestion
-      question={currentQuiz.questions[currentQuestionIndex]}
-      onAnswer={handleAnswer}
-      questionNumber={currentQuestionIndex + 1}
-      totalQuestions={currentQuiz.questions.length}
-    />
+    <div className="container mx-auto p-4">
+      {/* Quiz title can be displayed here, or moved inside QuizPlayer if desired */}
+      {/* <h1 className="text-3xl font-bold text-center mb-6">{currentQuiz.title}</h1> */}
+      <QuizPlayer quizData={currentQuiz} />
+    </div>
   );
 };
 
 /**
- * Page that displays a quiz and handles user input.
+ * Page that displays a quiz by fetching it and delegates playing logic to QuizPlayer.
  *
- * This page is responsible for fetching the quiz data from the server,
- * displaying the quiz questions, and handling the user's answers.
- * It also displays the quiz results and allows the user to retake the quiz.
- *
- * The page uses the {@link useQuizStore} to manage the quiz data and
- * the {@link useAuthStore} to manage the user's authentication state.
+ * This page is now solely responsible for:
+ * - Extracting the quiz ID from URL params.
+ * - Fetching the quiz data using useQuizStore.
+ * - Handling loading and error states during data fetching.
+ * - Rendering the QuizPlayer component once data is available.
  *
  * @returns The QuizPage component.
  */
