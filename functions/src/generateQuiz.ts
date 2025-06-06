@@ -4,20 +4,10 @@ import { onCall, CallableRequest } from 'firebase-functions/v2/https';
 // Keep this import for functions.logger and functions.https.HttpsError
 import * as functions from 'firebase-functions';
 
-// 🛑🛑🛑 IMPORTANT FIX FOR "admin.firestore is not a function" 🛑🛑🛑
-// Instead of importing all of 'firebase-admin' and relying on default exports,
-// we import specific functions from their modular paths.
-// 'getApp()' is used to retrieve the default app instance that was initialized in index.ts.
+// 🛑🛑🛑 IMPORTANT FIX: Ensure modular imports are used for services from firebase-admin 🛑🛑🛑
 import { getApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'; // Specifically import getFirestore and FieldValue
-import { getAuth } from 'firebase-admin/auth'; // Specifically import getAuth
-
-// We keep the main 'admin' import for things like admin.firestore.FieldValue,
-// but it's often better to import FieldValue directly as shown above.
-// For consistency, let's stick with the modular imports for services.
-// Note: 'admin' itself is still useful for types or if you absolutely need the whole namespace for other utilities not covered by modular imports.
-// For this error, the key is using getFirestore() and getAuth().
-// 🛑🛑🛑 END IMPORTANT FIX 🛑🛑🛑
+import { getAuth } from 'firebase-admin/auth';
 
 import { GoogleGenerativeAI, GenerateContentRequest } from "@google/generative-ai";
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
@@ -43,6 +33,7 @@ async function getGeminiApiKey(): Promise<string | undefined> {
   }
 }
 
+// --- MODIFICATION 1: Update QuizGenerationCallableRequest interface ---
 // Define expected request body from client for onCall
 interface QuizGenerationCallableRequest {
   title?: string;
@@ -52,10 +43,12 @@ interface QuizGenerationCallableRequest {
   team?: string;
   event?: string;
   country?: string;
-  visibility?: 'global' | 'private'; // Optional visibility for admins
+  visibility?: 'global' | 'private';
+  // ✅ NEW: Add quizType to the expected request payload
+  quizType: 'multiple_choice' | 'true_false';
 }
 
-// Define Gemini output structure
+// Define Gemini output structure (No change needed here for this step)
 interface GeminiQuestion {
   question: string;
   options: string[];
@@ -64,30 +57,26 @@ interface GeminiQuestion {
 
 // Use onCall from v2, with corrected signature
 export const generateQuiz = onCall({ region: 'us-central1' }, async (request: CallableRequest<QuizGenerationCallableRequest>) => {
-  // 🛑🛑🛑 FIX: Get the initialized app and then services from it 🛑🛑🛑
-  const app = getApp(); // Get the default Firebase app initialized in index.ts
-  const db = getFirestore(app); // Get Firestore instance from the app
-  const authService = getAuth(app); // Get Auth instance from the app (renamed to avoid conflict with request.auth)
-  // 🛑🛑🛑 END FIX 🛑🛑🛑
+  const app = getApp();
+  const db = getFirestore(app);
+  const authService = getAuth(app);
 
-  // Destructure data and auth from the single request object
   const { data } = request;
-  const requestAuth = request.auth; // auth from the client request
+  const requestAuth = request.auth;
 
   // 1. Authentication Check
-  if (!requestAuth) { // Check if auth exists from the request
+  if (!requestAuth) {
     throw new functions.https.HttpsError(
       'unauthenticated',
       'The function must be called while authenticated.'
     );
   }
 
-  const userId = requestAuth.uid; // Access uid from auth
+  const userId = requestAuth.uid;
 
-  // ⭐ NEW: Fetch user's custom claims to check for admin status ⭐
   let isAdmin = false;
   try {
-    const userRecord = await authService.getUser(userId); // 🛑 FIX: Use authService here 🛑
+    const userRecord = await authService.getUser(userId);
     isAdmin = userRecord.customClaims ? (userRecord.customClaims as { admin?: boolean }).admin === true : false;
   } catch (err: unknown) {
     let errorMessage = 'Unknown error fetching custom claims';
@@ -97,8 +86,9 @@ export const generateQuiz = onCall({ region: 'us-central1' }, async (request: Ca
     functions.logger.warn(`Could not fetch custom claims for user ${userId}: ${errorMessage}`);
   }
 
+  // --- MODIFICATION 2: Destructure and Validate new quizType ---
   // 2. Validate input from data (payload)
-  const { category, difficulty, numberOfQuestions, team, event, country, title } = data;
+  const { category, difficulty, numberOfQuestions, team, event, country, title, quizType } = data; // ✅ NEW: Destructure quizType
   const requestedVisibility = data.visibility || 'private';
 
   if (!category || typeof category !== 'string' || category.trim() === '') {
@@ -107,11 +97,17 @@ export const generateQuiz = onCall({ region: 'us-central1' }, async (request: Ca
       'Category is required and must be a non-empty string.'
     );
   }
-  // Corrected the redundant condition
   if (!numberOfQuestions || typeof numberOfQuestions !== 'number' || numberOfQuestions < 1 || numberOfQuestions > 20) {
     throw new functions.https.HttpsError(
       'invalid-argument',
       'Number of questions is required and must be between 1 and 20.'
+    );
+  }
+  // ✅ NEW: Validate quizType
+  if (!quizType || !['multiple_choice', 'true_false'].includes(quizType)) {
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      'Quiz type is required and must be "multiple_choice" or "true_false".'
     );
   }
 
@@ -128,14 +124,27 @@ export const generateQuiz = onCall({ region: 'us-central1' }, async (request: Ca
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-  const promptText = `You are a professional sports quiz generator. Generate exactly ${numberOfQuestions} multiple-choice questions about ${category}${difficulty ? ` with ${difficulty} difficulty` : ""}${team ? ` focused on ${team}` : ""}${event ? ` about the ${event}` : ""}${country ? ` in ${country}` : ""}.
+  // --- MODIFICATION 3: Dynamically construct the Gemini prompt ---
+  let questionFormatInstructions: string;
+  let responseFormatInstructions: string;
+  let answerChoiceOptions: string; // To specify options for validation later
 
-Each question must have:
-- A field "question" (string),
-- A field "options" (array of 4 strings formatted "A. ..", "B. .." etc.),
-- A field "answer" (string, one of "A", "B", "C", or "D")
+  if (quizType === 'multiple_choice') {
+    questionFormatInstructions = `multiple-choice questions. Each question must have exactly 4 options.`;
+    responseFormatInstructions = `question (string), options (array of 4 strings, e.g., ["A. Option 1", "B. Option 2", "C. Option 3", "D. Option 4"]), and answer (string, one of "A", "B", "C", or "D").`;
+    answerChoiceOptions = `['A', 'B', 'C', 'D']`;
+  } else if (quizType === 'true_false') {
+    questionFormatInstructions = `True/False questions. Each question must be a statement that is either definitively True or False.`;
+    responseFormatInstructions = `question (string), options (array containing ONLY "True" and "False"), and answer (string, either "True" or "False").`;
+    answerChoiceOptions = `['True', 'False']`;
+  } else {
+    // This case should ideally be caught by validation above, but as a fallback:
+    throw new functions.https.HttpsError('invalid-argument', `Unsupported quizType: ${quizType}.`);
+  }
 
-Return ONLY a JSON array of ${numberOfQuestions} such objects, parsable by JSON.parse(). DO NOT add explanations, markdown, or extra text.`;
+  const promptText = `You are a professional sports quiz generator. Generate exactly ${numberOfQuestions} ${questionFormatInstructions} about ${category}${difficulty ? ` with ${difficulty} difficulty` : ""}${team ? ` focused on ${team}` : ""}${event ? ` about the ${event}` : ""}${country ? ` in ${country}` : ""}.
+
+Return ONLY a JSON array of ${numberOfQuestions} such objects, parsable by JSON.parse(). Each object should have these properties: ${responseFormatInstructions} DO NOT add explanations, markdown, or extra text.`;
 
   const generateContentRequest: GenerateContentRequest = {
     contents: [{ role: 'user', parts: [{ text: promptText }] }],
@@ -184,27 +193,33 @@ Return ONLY a JSON array of ${numberOfQuestions} such objects, parsable by JSON.
     throw new functions.https.HttpsError('internal', `AI did not return the expected number of questions or format.`);
   }
 
+  // --- MODIFICATION 4: Update question validation and mapping for quizType ---
   const invalidQuestions = questionsRaw.filter((q, index) => {
-    const isValid =
-      typeof q.question === 'string' && q.question.trim().length > 0 &&
-      Array.isArray(q.options) && q.options.length === 4 &&
-      q.options.every(opt => typeof opt === 'string' && opt.trim().length > 0) &&
-      typeof q.answer === 'string' && ['A', 'B', 'C', 'D'].includes(q.answer);
+    let isValid = typeof q.question === 'string' && q.question.trim().length > 0 &&
+                  Array.isArray(q.options) && q.options.every(opt => typeof opt === 'string' && opt.trim().length > 0);
+
+    if (quizType === 'multiple_choice') {
+      isValid = isValid && q.options.length === 4 && ['A', 'B', 'C', 'D'].includes(q.answer);
+    } else if (quizType === 'true_false') {
+      isValid = isValid && q.options.length === 2 &&
+                (q.options[0] === 'True' && q.options[1] === 'False' || q.options[0] === 'False' && q.options[1] === 'True') &&
+                ['True', 'False'].includes(q.answer);
+    }
 
     if (!isValid) {
-      functions.logger.error(`Invalid question at index ${index} from AI:`, q);
+      functions.logger.error(`Invalid question at index ${index} from AI for type ${quizType}:`, q);
     }
     return !isValid;
   });
 
   if (invalidQuestions.length > 0) {
-    throw new functions.https.HttpsError('internal', `Some generated questions were invalid.`);
+    throw new functions.https.HttpsError('internal', `Some generated questions were invalid for type ${quizType}.`);
   }
 
   const questions = questionsRaw.map((q, i) => ({
-    id: `q${i + 1}`,
+    id: db.collection('quizzes').doc().id, // Generate unique ID for each question
     text: q.question,
-    type: 'multiple_choice',
+    type: quizType, // ✅ NEW: Assign the generated quizType to each question
     options: q.options,
     correctAnswer: q.answer
   }));
@@ -219,13 +234,16 @@ Return ONLY a JSON array of ${numberOfQuestions} such objects, parsable by JSON.
     team: team || '',
     country: country || '',
     questions,
-    createdAt: FieldValue.serverTimestamp(), // 🛑 FIX: Use imported FieldValue 🛑
+    createdAt: FieldValue.serverTimestamp(),
     createdBy: userId,
     visibility: finalVisibility,
+    // --- MODIFICATION 5: Add quizType to the saved Quiz object ---
+    quizType: quizType // ✅ NEW: Store the type it was generated as in the database
   };
 
   functions.logger.info("Saving quiz to Firestore:", JSON.stringify(quizToSave, null, 2));
   await db.collection('quizzes').doc(quizId).set(quizToSave);
 
-  return { quiz: quizToSave };
+  // --- MODIFICATION 6: Ensure the full quizToSave object is returned ---
+  return { quiz: quizToSave }; // Already correctly returning the object from your code!
 });
