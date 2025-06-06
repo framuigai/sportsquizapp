@@ -49,16 +49,10 @@ const AdminPage: React.FC = () => {
         <Shield className="h-8 w-8 text-sky-500 mr-3" />
         <div>
           <h1 className="text-3xl font-bold text-slate-800">Admin Dashboard</h1>
-          <p className="text-slate-600 mt-1">
-            Create, manage, and curate quizzes for your users.
-          </p>
         </div>
       </div>
 
-      <div className="bg-white shadow-sm rounded-lg p-6 mb-8">
-        <h2 className="text-xl font-semibold text-slate-800 mb-4">Create New Quiz</h2>
-        <QuizForm />
-      </div>
+    
 
       <div className="bg-white shadow-sm rounded-lg p-6">
         <h2 className="text-xl font-semibold text-slate-800 mb-4">Manage Quizzes</h2>

@@ -95,7 +95,7 @@ const GenerateQuizPage: React.FC = () => {
             onChange={(e) => setCategory(e.target.value)}
             required // HTML5 validation for required field
             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-            placeholder="e.g., Football, Basketball, Olympics"
+            placeholder="e.g., Football, Basketball, NFL etc"
           />
         </div>
 
