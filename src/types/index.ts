@@ -1,6 +1,6 @@
 // src/types/index.ts
 
-import { Timestamp } from 'firebase/firestore'; // ⭐ ADD THIS IMPORT ⭐
+import { Timestamp } from 'firebase/firestore';
 
 export type User = {
   id: string;
@@ -9,10 +9,20 @@ export type User = {
   isAdmin?: boolean;
 };
 
+// ⭐ NEW INTERFACE TO ADD FOR STEP 1 ⭐
+export interface QuizConfig {
+  topic: string;
+  numberOfQuestions: number;
+  difficulty: 'easy' | 'medium' | 'hard';
+  quizType: 'multiple_choice' | 'true_false'; // This is the key addition for Step 1
+  // Add other generation parameters here if you have them,
+  // e.g., category, subCategory, team, country, event, if they are part of the *input* for generation
+}
+
 export type QuizQuestion = {
   id: string;
   text: string;
-  type: 'multiple_choice' | 'true_false';
+  type: 'multiple_choice' | 'true_false'; // This is already good here!
   options?: string[];
   correctAnswer: string;
 };
@@ -29,8 +39,10 @@ export type Quiz = {
   questions: QuizQuestion[];
   createdAt: number;
   createdBy: string;
-  // ⭐ NEW PROPERTY ADDED HERE ⭐
   visibility: 'global' | 'private';
+  // You might want to add 'quizType' here as well, if the generated quiz
+  // itself stores the type it was generated as. This is often good practice.
+  // quizType: 'multiple_choice' | 'true_false'; // Consider adding this here for clarity on stored quizzes
 };
 
 export type QuizAttempt = {
@@ -45,9 +57,8 @@ export type QuizAttempt = {
     correctAnswer: string;
     isCorrect: boolean;
   }[];
-  // ⭐ CHANGE THIS LINE ⭐
-  completedAt: Timestamp; // Should be Firebase Timestamp object
-  timeSpent: number; // in seconds
+  completedAt: Timestamp;
+  timeSpent: number;
 };
 
 export type QuizFilter = {
@@ -57,9 +68,7 @@ export type QuizFilter = {
   country?: string;
   event?: string;
   difficulty?: 'easy' | 'medium' | 'hard';
-  // ⭐ NEW FILTER OPTION ADDED HERE ⭐
   visibility?: 'global' | 'private';
-  // ⭐ ADD THIS IF YOU WANT TO FILTER BY CREATOR (for 'My Quizzes') ⭐
   createdBy?: string;
 };
 
