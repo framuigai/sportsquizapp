@@ -9,29 +9,33 @@ export type User = {
   isAdmin?: boolean;
 };
 
-// ⭐ NEW INTERFACE TO ADD FOR STEP 1 ⭐
+// --- MODIFICATION 1: Update QuizConfig to include all generation parameters & visibility ---
 export interface QuizConfig {
-  topic: string;
-  numberOfQuestions: number;
+  title?: string; // ✅ ADDED: Optional title for the quiz
+  category: string; // ✅ ADDED: Category is typically a core parameter for generation
   difficulty: 'easy' | 'medium' | 'hard';
+  numberOfQuestions: number;
   quizType: 'multiple_choice' | 'true_false'; // This is the key addition for Step 1
-  // Add other generation parameters here if you have them,
-  // e.g., category, subCategory, team, country, event, if they are part of the *input* for generation
+  team?: string; // ✅ ADDED: Optional team parameter
+  event?: string; // ✅ ADDED: Optional event parameter
+  country?: string; // ✅ ADDED: Optional country parameter
+  visibility?: 'global' | 'private'; // ✅ ADDED: For frontend forms to suggest visibility
 }
 
 export type QuizQuestion = {
   id: string;
   text: string;
-  type: 'multiple_choice' | 'true_false'; // This is already good here!
+  type: 'multiple_choice' | 'true_false';
   options?: string[];
   correctAnswer: string;
 };
 
+// --- MODIFICATION 2: Add quizType to the Quiz interface ---
 export type Quiz = {
   id: string;
   title: string;
   category: string;
-  subCategory?: string;
+  subCategory?: string; // Keep if still relevant
   team?: string;
   country?: string;
   event?: string;
@@ -40,9 +44,7 @@ export type Quiz = {
   createdAt: number;
   createdBy: string;
   visibility: 'global' | 'private';
-  // You might want to add 'quizType' here as well, if the generated quiz
-  // itself stores the type it was generated as. This is often good practice.
-  // quizType: 'multiple_choice' | 'true_false'; // Consider adding this here for clarity on stored quizzes
+  quizType: 'multiple_choice' | 'true_false'; // ✅ ADDED: Crucial for displaying saved quizzes correctly
 };
 
 export type QuizAttempt = {
