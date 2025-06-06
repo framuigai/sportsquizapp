@@ -3,54 +3,64 @@ import React, { useEffect } from 'react';
 import { useQuizStore } from '../store/quizStore';
 import { useAuthStore } from '../store/authStore';
 import { useNavigate } from 'react-router-dom';
-import { BookOpenText, Loader2, Frown, Info } from 'lucide-react'; // Added Info icon for clarity
+import { BookOpenText, Loader2, Frown, Info } from 'lucide-react';
 import QuizCard from '../components/quiz/QuizCard';
-import Alert from '../components/ui/Alert';
+import Alert from '../components/ui/Alert'; // Assuming you have an Alert component
 
 const MyQuizzesPage: React.FC = () => {
   const navigate = useNavigate();
+  // Destructure user and isInitialized from useAuthStore to manage authentication state
   const { user, isInitialized } = useAuthStore();
+  // Destructure relevant state and actions from useQuizStore
   const { quizzes, loading, error, fetchQuizzes } = useQuizStore();
 
   useEffect(() => {
-    // Only proceed if authentication state has been initialized
+    // Explanation 1: Wait for Auth Initialization
+    // It's crucial to wait until `isInitialized` is true to ensure Firebase Auth
+    // has completed its initial check (whether a user is logged in or not).
     if (!isInitialized) {
       return;
     }
 
-    // If user is not logged in after initialization, redirect to login page
+    // Explanation 2: Redirect if Not Authenticated
+    // If authentication is initialized and there's no `user`,
+    // it means the user is not logged in. Redirect them to the login page.
     if (!user) {
       navigate('/login');
-      // No need to fetch or clear quizzes here, as the user is being redirected
-      return;
+      return; // Stop further execution of this effect
     }
 
-    // If user is logged in, fetch their private quizzes
-    // This query now correctly aligns with the new rule: all generated quizzes start as 'private'
-    // and only the creator (user.id) can see their own private quizzes here.
+    // Explanation 3: Fetch User-Specific Private Quizzes
+    // If the user is logged in (`user` is present), fetch their quizzes.
+    // We use the `fetchQuizzes` action from `useQuizStore` and apply filters:
+    // - `createdBy: user.id`: Ensures we only get quizzes created by the current user.
+    // - `visibility: 'private'`: Ensures we only get their *private* quizzes.
+    // This perfectly aligns with the purpose of "My Quizzes" page and Step 7's enhancements.
     fetchQuizzes({ createdBy: user.id, visibility: 'private' });
 
-    // Optional: Cleanup function if you had subscriptions, though not strictly needed here
-    // return () => {
-    //   // If needed, you could reset quiz store state here to prevent stale data
-    //   // useQuizStore.setState({ quizzes: [], currentQuiz: null, error: null });
-    // };
-  }, [user, isInitialized, fetchQuizzes, navigate]); // Dependencies are correct
+    // Dependencies for useEffect:
+    // - `user`: Re-run if the user object changes (e.g., login/logout).
+    // - `isInitialized`: Re-run once authentication state is known.
+    // - `fetchQuizzes`: Dependency for the `fetchQuizzes` function (Zustand actions are stable, but good practice).
+    // - `Maps`: Dependency for the `Maps` function.
+  }, [user, isInitialized, fetchQuizzes, navigate]);
 
   // --- Render Logic ---
 
-  // 1. Show global loading indicator while authentication is being initialized
+  // Explanation 4: Initial Loading State for Auth
+  // Show a full-page loading spinner while Firebase Auth is initializing.
   if (!isInitialized) {
     return (
-      <div className="flex justify-center items-center min-h-[calc(100vh-64px)]"> {/* Adjust height as per your layout */}
+      <div className="flex justify-center items-center min-h-[calc(100vh-64px)]">
         <Loader2 className="h-12 w-12 animate-spin text-sky-500" />
         <p className="ml-3 text-lg text-slate-600">Initializing authentication...</p>
       </div>
     );
   }
 
-  // 2. User will be redirected by useEffect if not logged in, so this block won't be reached
-  // if (!user) { /* This conditional branch will effectively be skipped due to the navigate('/login') above */ }
+  // Note: The `if (!user)` check is handled by the `useEffect` redirect.
+  // This means if `isInitialized` is true and `user` is null, the user will be
+  // redirected, so the code below this won't execute for unauthenticated users.
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -63,7 +73,8 @@ const MyQuizzesPage: React.FC = () => {
         until an admin makes them global for everyone to see.
       </p>
 
-      {/* 3. Display loading state for quiz fetching */}
+      {/* Explanation 5: Displaying Loading, Error, or No Quizzes */}
+      {/* 5a. Loading state for quiz fetching */}
       {loading && (
         <div className="flex justify-center items-center py-10">
           <Loader2 className="h-8 w-8 animate-spin text-sky-500" />
@@ -71,12 +82,12 @@ const MyQuizzesPage: React.FC = () => {
         </div>
       )}
 
-      {/* 4. Display error state for quiz fetching */}
+      {/* 5b. Error state for quiz fetching */}
       {error && (
         <Alert type="error" message={error} className="mt-4" />
       )}
 
-      {/* 5. Display message if no quizzes are found after loading and no error */}
+      {/* 5c. Message if no quizzes are found after loading and no error */}
       {!loading && !error && quizzes.length === 0 && (
         <div className="text-center py-10 text-slate-500">
           <Frown className="h-12 w-12 mx-auto mb-4 text-slate-400" />
@@ -85,7 +96,7 @@ const MyQuizzesPage: React.FC = () => {
         </div>
       )}
 
-      {/* 6. Display quizzes if successfully loaded */}
+      {/* 5d. Display quizzes if successfully loaded and available */}
       {!loading && !error && quizzes.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
           {quizzes.map((quiz) => (

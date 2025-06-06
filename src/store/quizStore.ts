@@ -14,8 +14,8 @@ import {
   addDoc,
   Timestamp,
   DocumentData,
+  Query, // ⭐ Import Query type for better TypeScript inference
 } from 'firebase/firestore';
-// ✅ Import QuizConfig (now includes visibility)
 import { Quiz, QuizAttempt, QuizFilter, QuizConfig } from '../types';
 import { db, functions } from '../firebase/config';
 import { httpsCallable } from 'firebase/functions';
@@ -29,7 +29,6 @@ interface RawQuizAttemptDocument extends DocumentData {
   completedAt?: Timestamp;
 }
 
-// ✅ Corrected: GenerateQuizCallableRequest matches backend, now including quizType AND visibility
 interface GenerateQuizCallableRequest {
   title?: string;
   category: string;
@@ -38,7 +37,7 @@ interface GenerateQuizCallableRequest {
   team?: string;
   event?: string;
   country?: string;
-  visibility?: 'global' | 'private'; // ⭐ NOW MATCHES THE BACKEND'S EXPECTATION ⭐
+  visibility?: 'global' | 'private';
   quizType: 'multiple_choice' | 'true_false';
 }
 
@@ -53,7 +52,6 @@ interface QuizState {
   loading: boolean;
   error: string | null;
 
-  // ✅ Corrected signature: Now takes QuizConfig (which includes visibility & quizType)
   generateQuiz: (config: QuizConfig) => Promise<Quiz>;
   saveQuiz: (quiz: Quiz) => Promise<void>;
   fetchQuizById: (id: string) => Promise<void>;
@@ -70,7 +68,7 @@ export const useQuizStore = create<QuizState>((set, get) => ({
   loading: false,
   error: null,
 
-  generateQuiz: async (config: QuizConfig) => { // ✅ Corrected parameter type
+  generateQuiz: async (config: QuizConfig) => {
     set({ loading: true, error: null, currentQuiz: null });
 
     const authState = useAuthStore.getState();
@@ -84,7 +82,6 @@ export const useQuizStore = create<QuizState>((set, get) => ({
     }
 
     try {
-      // ⭐ FIX APPLIED HERE: config.visibility is now a valid property thanks to src/types/index.ts update ⭐
       const finalVisibility: 'global' | 'private' =
         isAdmin && config.visibility === 'global' ? 'global' : 'private';
 
@@ -96,7 +93,7 @@ export const useQuizStore = create<QuizState>((set, get) => ({
         team: config.team,
         event: config.event,
         country: config.country,
-        visibility: finalVisibility, // ✅ No error now, as visibility is part of payload
+        visibility: finalVisibility,
         quizType: config.quizType,
       };
 
@@ -124,13 +121,25 @@ export const useQuizStore = create<QuizState>((set, get) => ({
 
   saveQuiz: async (quiz: Quiz) => {
     try {
-      if (!quiz.id) {
-        const docRef = await addDoc(collection(db, 'quizzes'), quiz);
-        quiz.id = docRef.id;
+      // Get the current user's ID to set as createdBy if it's a new quiz
+      const auth = getAuth();
+      const currentUser = auth.currentUser;
+      const createdBy = currentUser?.uid || 'anonymous'; // Fallback to anonymous if no user
+
+      const quizToSave = { ...quiz };
+
+      if (!quizToSave.id) {
+        // New quiz: add createdAt and createdBy
+        quizToSave.createdAt = Timestamp.now().toMillis(); // Store as millis
+        quizToSave.createdBy = createdBy;
+        const docRef = await addDoc(collection(db, 'quizzes'), quizToSave);
+        quizToSave.id = docRef.id;
       } else {
-        await setDoc(doc(db, 'quizzes', quiz.id), quiz);
+        // Existing quiz: only update if necessary, but createdBy/createdAt usually immutable
+        await setDoc(doc(db, 'quizzes', quizToSave.id), quizToSave, { merge: true }); // Use merge to avoid overwriting
       }
-      await get().fetchQuizzes({});
+      // Re-fetch quizzes after saving to update the list, apply current filters
+      await get().fetchQuizzes({}); // Re-fetch all or apply specific filters if current context allows
     } catch (error) {
       console.error('Error saving quiz:', error);
       set({ error: 'Error saving quiz' });
@@ -219,22 +228,45 @@ export const useQuizStore = create<QuizState>((set, get) => ({
   fetchQuizzes: async (filter: QuizFilter = {}) => {
     set({ loading: true, error: null });
     try {
-      let q: any = collection(db, 'quizzes');
+      // Start with a reference to the quizzes collection
+      let quizzesQuery: Query<DocumentData> = collection(db, 'quizzes');
 
-      if (filter.category) { q = query(q, where('category', '==', filter.category)); }
-      if (filter.difficulty) { q = query(q, where('difficulty', '==', filter.difficulty)); }
-      if (filter.team) { q = query(q, where('team', '==', filter.team)); }
-      if (filter.event) { q = query(q, where('event', '==', filter.event)); }
-      if (filter.country) { q = query(q, where('country', '==', filter.country)); }
-      if (filter.title) { q = query(q, where('title', '==', filter.title)); }
+      // Apply filters based on the `filter` object
+      if (filter.category) {
+        quizzesQuery = query(quizzesQuery, where('category', '==', filter.category));
+      }
+      if (filter.difficulty) {
+        quizzesQuery = query(quizzesQuery, where('difficulty', '==', filter.difficulty));
+      }
+      if (filter.team) {
+        quizzesQuery = query(quizzesQuery, where('team', '==', filter.team));
+      }
+      if (filter.event) {
+        quizzesQuery = query(quizzesQuery, where('event', '==', filter.event));
+      }
+      if (filter.country) {
+        quizzesQuery = query(quizzesQuery, where('country', '==', filter.country));
+      }
+      if (filter.title) {
+        // For partial title matches, you might need more advanced techniques
+        // like Algolia or a specific cloud function.
+        // For exact match, this is fine:
+        quizzesQuery = query(quizzesQuery, where('title', '==', filter.title));
+      }
 
-      if (filter.visibility) { q = query(q, where('visibility', '==', filter.visibility)); }
-      if (filter.createdBy) { q = query(q, where('createdBy', '==', filter.createdBy)); }
+      // ⭐ Core changes for Step 7: Apply visibility and createdBy filters ⭐
+      if (filter.visibility) {
+        quizzesQuery = query(quizzesQuery, where('visibility', '==', filter.visibility));
+      }
+      if (filter.createdBy) {
+        quizzesQuery = query(quizzesQuery, where('createdBy', '==', filter.createdBy));
+      }
 
-      q = query(q, orderBy('createdAt', 'desc'));
-      q = query(q, limit(20));
+      // Always order by createdAt and limit the results
+      quizzesQuery = query(quizzesQuery, orderBy('createdAt', 'desc'));
+      quizzesQuery = query(quizzesQuery, limit(20)); // Limit to a reasonable number of quizzes
 
-      const querySnapshot = await getDocs(q);
+      const querySnapshot = await getDocs(quizzesQuery);
       const fetchedQuizzes = querySnapshot.docs.map((doc) => {
         const rawData = doc.data() as RawQuizDocument;
 
