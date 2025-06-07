@@ -1,12 +1,11 @@
-// src/components/admin/QuizForm.tsx
-import React, { useState, FormEvent, useEffect } from 'react'; // MODIFIED: Import useEffect
+import React, { useState, FormEvent, useEffect, useCallback } from 'react';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
 import Select from '../ui/Select';
 import { useQuizStore } from '../../store/quizStore';
 import { useAuthStore } from '../../store/authStore';
-import { QuizConfig, Quiz } from '../../types';
+import { QuizConfig, Quiz } from '../../types'; // Ensure QuizConfig type is imported and updated
 import toast from 'react-hot-toast';
 
 interface QuizFormState {
@@ -46,9 +45,9 @@ const QuizForm: React.FC<QuizFormProps> = ({
   onQuizGenerated, 
   isGenerating, 
   generationError, 
-  initialQuizConfig, // Destructure the new prop
-  onGenerationStart, // Destructure the new callback
-  onGenerationError // Destructure the new callback
+  initialQuizConfig,
+  onGenerationStart,
+  onGenerationError
 }) => {
   const { user } = useAuthStore();
   const { generateQuiz, loading: storeLoading, error: storeError } = useQuizStore();
@@ -70,25 +69,8 @@ const QuizForm: React.FC<QuizFormProps> = ({
   const loading = isGenerating !== undefined ? isGenerating : storeLoading;
   const currentError = generationError !== undefined ? generationError : storeError;
 
-  // NEW: Effect to set initial form state if initialQuizConfig is provided
-  useEffect(() => {
-    if (initialQuizConfig) {
-      setFormState({
-        title: initialQuizConfig.title || '',
-        category: initialQuizConfig.category || '', // Category is required by validation, ensure it's not null
-        difficulty: initialQuizConfig.difficulty || 'medium',
-        numberOfQuestions: initialQuizConfig.numberOfQuestions || 5,
-        quizType: initialQuizConfig.quizType || 'multiple_choice',
-        event: initialQuizConfig.event || '',
-        team: initialQuizConfig.team || '',
-        country: initialQuizConfig.country || '',
-      });
-      // Clear any previous validation errors, as new config is loaded
-      setErrors({}); 
-    }
-  }, [initialQuizConfig]); // Re-run when initialQuizConfig changes
-
-  const validateForm = (): boolean => {
+  // Memoize validateForm with useCallback to prevent unnecessary re-creations
+  const validateForm = useCallback((): boolean => {
     const newErrors: QuizFormErrors = {};
     if (!formState.category.trim()) {
       newErrors.category = 'Category is required.';
@@ -97,9 +79,34 @@ const QuizForm: React.FC<QuizFormProps> = ({
       newErrors.numberOfQuestions = 'Number of questions must be between 1 and 20.';
     }
 
-    setErrors(newErrors);
+    // Only update errors state if it has actually changed to prevent unnecessary re-renders
+    if (JSON.stringify(newErrors) !== JSON.stringify(errors)) {
+      setErrors(newErrors);
+    }
     return Object.keys(newErrors).length === 0;
-  };
+  }, [formState, errors]); // Dependencies for useCallback: re-create if formState or current errors change
+
+  // Effect to re-validate form whenever formState changes
+  useEffect(() => {
+    validateForm();
+  }, [formState, validateForm]); // Re-run validation whenever formState or validateForm changes
+
+  // Effect to set initial form state if initialQuizConfig is provided (e.g., from "Play Similar Quiz")
+  useEffect(() => {
+    if (initialQuizConfig) {
+      setFormState({
+        title: initialQuizConfig.title || '',
+        category: initialQuizConfig.category || '',
+        difficulty: initialQuizConfig.difficulty || 'medium',
+        numberOfQuestions: initialQuizConfig.numberOfQuestions || 5,
+        quizType: initialQuizConfig.quizType || 'multiple_choice',
+        event: initialQuizConfig.event || '',
+        team: initialQuizConfig.team || '',
+        country: initialQuizConfig.country || '',
+      });
+      // Errors will be cleared by the useEffect above once formState updates from initialConfig
+    }
+  }, [initialQuizConfig]); // Re-run when initialQuizConfig changes
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -107,13 +114,14 @@ const QuizForm: React.FC<QuizFormProps> = ({
       ...prev,
       [name]: name === 'numberOfQuestions' ? parseInt(value) || 0 : value,
     }));
-    setErrors((prev) => ({ ...prev, [name]: undefined })); // Clear specific error on change
+    // No need to clear specific error here, as the useEffect will handle full re-validation
   };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     
-    const isValid = validateForm();
+    // Validate form one last time on submit to ensure latest state is checked
+    const isValid = validateForm(); // This will also update the errors state
     if (!isValid) {
       toast.error('Please correct the form errors.');
       return;
@@ -125,13 +133,14 @@ const QuizForm: React.FC<QuizFormProps> = ({
     const visibility: 'global' | 'private' = user?.isAdmin ? 'global' : 'private';
 
     const quizConfig: QuizConfig = {
-      title: formState.title.trim() || undefined,
-      category: formState.category.trim(),
+      // ✅ Now this is type-safe because QuizConfig allows `null`
+      title: formState.title.trim() === '' ? null : formState.title.trim(), 
+      category: formState.category.trim(), // Category is required, so it won't be empty
       difficulty: formState.difficulty,
       numberOfQuestions: formState.numberOfQuestions,
-      team: formState.team.trim() || undefined,
-      event: formState.event.trim() || undefined,
-      country: formState.country.trim() || undefined,
+      team: formState.team.trim() === '' ? null : formState.team.trim(), 
+      event: formState.event.trim() === '' ? null : formState.event.trim(), 
+      country: formState.country.trim() === '' ? null : formState.country.trim(), 
       visibility,
       quizType: formState.quizType,
     };
@@ -151,19 +160,19 @@ const QuizForm: React.FC<QuizFormProps> = ({
             team: '',
             country: '',
         });
-        toast.success(`Successfully generated quiz "${generatedQuiz.title || formState.category}"!`); // Use category if no title
+        toast.success(`Successfully generated quiz "${generatedQuiz.title || formState.category}"!`);
       } else {
         toast.error('Quiz generation succeeded but returned no quiz data. Please try again.');
-        onGenerationError('Quiz generation succeeded but returned no quiz data.'); // Also update parent's error state
+        onGenerationError('Quiz generation succeeded but returned no quiz data.');
       }
 
     } catch (err: any) {
       toast.error(err.message || 'Failed to generate quiz. Please try again.');
-      onGenerationError(err.message || 'Failed to generate quiz.'); // Update parent's error state
+      onGenerationError(err.message || 'Failed to generate quiz.');
     }
   };
 
-  const hasErrors = Object.keys(errors).length > 0;
+  const hasErrors = Object.keys(errors).length > 0; // This will now accurately reflect real-time validation
 
   return (
     <div className="p-6 bg-white rounded-lg shadow-md">

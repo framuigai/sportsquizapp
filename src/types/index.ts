@@ -10,15 +10,16 @@ export type User = {
 };
 
 export interface QuizConfig {
-  title?: string;
+  // ⭐ IMPORTANT CHANGE HERE: Allow 'null' for optional string fields ⭐
+  title?: string | null; 
   category: string;
   difficulty: 'easy' | 'medium' | 'hard';
   numberOfQuestions: number;
   quizType: 'multiple_choice' | 'true_false';
-  team?: string;
-  event?: string;
-  country?: string;
-  visibility?: 'global' | 'private';
+  team?: string | null;   // Allow null
+  event?: string | null;  // Allow null
+  country?: string | null; // Allow null
+  visibility?: 'global' | 'private'; // This one is already optional
 }
 
 // ⭐ DEFINITIVE FIX: Updated QuizQuestion type ⭐
