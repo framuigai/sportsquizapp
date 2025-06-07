@@ -30,13 +30,13 @@ interface RawQuizAttemptDocument extends DocumentData {
 }
 
 interface GenerateQuizCallableRequest {
-  title?: string;
+  title?: string | null;
   category: string;
   difficulty?: 'easy' | 'medium' | 'hard';
   numberOfQuestions: number;
-  team?: string;
-  event?: string;
-  country?: string;
+  team?: string | null;
+  event?: string | null;
+  country?: string | null;
   visibility?: 'global' | 'private';
   quizType: 'multiple_choice' | 'true_false';
 }
@@ -53,10 +53,10 @@ interface QuizState {
   error: string | null;
 
   generateQuiz: (config: QuizConfig) => Promise<Quiz>;
-  saveQuiz: (quiz: Quiz, configUsedToGenerate?: QuizConfig) => Promise<void>; // MODIFIED: Added configUsedToGenerate
+  saveQuiz: (quiz: Quiz, configUsedToGenerate?: QuizConfig) => Promise<void>;
   fetchQuizById: (id: string) => Promise<void>;
   fetchUserAttempts: (userId: string) => Promise<void>;
-  saveQuizAttempt: (attempt: Omit<QuizAttempt, 'id'>, originalQuizConfig?: QuizConfig) => Promise<string>; // MODIFIED: Added originalQuizConfig
+  saveQuizAttempt: (attempt: Omit<QuizAttempt, 'id'>, originalQuizConfig?: QuizConfig) => Promise<string>;
   fetchQuizzes: (filter?: QuizFilter) => Promise<void>;
   updateQuizVisibility: (quizId: string, newVisibility: 'global' | 'private') => Promise<void>;
   updateQuizStatus: (quizId: string, newStatus: 'active' | 'deleted') => Promise<void>;
@@ -110,7 +110,6 @@ export const useQuizStore = create<QuizState>((set, get) => ({
         throw new Error('Generated quiz has no questions or is incomplete (from server response).');
       }
 
-      // ⭐ MODIFIED: Attach the config that was used to generate this quiz ⭐
       const quizWithConfig: Quiz = { ...generatedQuiz, createdFromQuizConfig: config };
 
       set({ loading: false, currentQuiz: quizWithConfig });
@@ -123,7 +122,7 @@ export const useQuizStore = create<QuizState>((set, get) => ({
     }
   },
 
-  saveQuiz: async (quiz: Quiz, configUsedToGenerate?: QuizConfig) => { // MODIFIED: Accept configUsedToGenerate
+  saveQuiz: async (quiz: Quiz, configUsedToGenerate?: QuizConfig) => {
     try {
       const auth = getAuth();
       const currentUser = auth.currentUser;
@@ -135,7 +134,6 @@ export const useQuizStore = create<QuizState>((set, get) => ({
         quizToSave.createdAt = Timestamp.now().toMillis();
         quizToSave.createdBy = createdBy;
         quizToSave.status = 'active';
-        // ⭐ NEW: Save the config used to generate it ⭐
         if (configUsedToGenerate) {
           quizToSave.createdFromQuizConfig = configUsedToGenerate;
         } else if (quiz.createdFromQuizConfig) {
@@ -147,7 +145,7 @@ export const useQuizStore = create<QuizState>((set, get) => ({
       } else {
         await setDoc(doc(db, 'quizzes', quizToSave.id), quizToSave, { merge: true });
       }
-      await get().fetchQuizzes({});
+      await get().fetchQuizzes({}); // Refetch quizzes after saving
     } catch (error) {
       console.error('Error saving quiz:', error);
       set({ error: 'Error saving quiz' });
@@ -223,13 +221,12 @@ export const useQuizStore = create<QuizState>((set, get) => ({
     }
   },
 
-  saveQuizAttempt: async (attempt, originalQuizConfig) => { // MODIFIED: Accept originalQuizConfig
+  saveQuizAttempt: async (attempt, originalQuizConfig) => {
     set({ loading: true, error: null });
     try {
       const attemptToSave = {
         ...attempt,
         completedAt: Timestamp.now(),
-        // ⭐ NEW: Save the original quiz config with the attempt ⭐
         originalQuizConfig: originalQuizConfig || attempt.originalQuizConfig,
       };
       const attemptRef = await addDoc(collection(db, 'quizAttempts'), attemptToSave);
@@ -269,11 +266,18 @@ export const useQuizStore = create<QuizState>((set, get) => ({
         quizzesQuery = query(quizzesQuery, where('title', '==', filter.title));
       }
 
+      // --- REVISED STATUS FILTERING LOGIC ---
       if (filter.status && filter.status !== 'all') {
+        // If a specific status ('active' or 'deleted') is provided and it's not 'all', apply it.
         quizzesQuery = query(quizzesQuery, where('status', '==', filter.status));
       } else if (!filter.status) {
+        // If no status is explicitly provided (undefined), default to 'active'.
+        // This is important for general quiz lists or initial admin view.
         quizzesQuery = query(quizzesQuery, where('status', '==', 'active'));
       }
+      // If filter.status is 'all', no 'where' clause for status is added,
+      // allowing all statuses to be fetched, which is the desired behavior for 'all'.
+      // --- END REVISED STATUS FILTERING LOGIC ---
 
       if (filter.visibility) {
         quizzesQuery = query(quizzesQuery, where('visibility', '==', filter.visibility));

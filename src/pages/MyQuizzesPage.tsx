@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { BookOpenText, Loader2, Frown } from 'lucide-react'; 
 import QuizCard from '../components/quiz/QuizCard';
 import Alert from '../components/ui/Alert';
-import toast from 'react-hot-toast'; // ⭐ NEW: Import toast
+import toast from 'react-hot-toast'; 
 
 const MyQuizzesPage: React.FC = () => {
   const navigate = useNavigate();
@@ -21,13 +21,13 @@ const MyQuizzesPage: React.FC = () => {
       navigate('/login');
       return;
     }
+    // ⭐ My Quizzes: Fetch private, active quizzes created by the user ⭐
     fetchQuizzes({ createdBy: user.id, visibility: 'private', status: 'active' });
   }, [user, isInitialized, fetchQuizzes, navigate]);
 
   const handleExportQuiz = (quizId: string) => {
     const quizToExport = quizzes.find(q => q.id === quizId);
     if (!quizToExport) {
-      // ⭐ MODIFIED: Use toast instead of alert
       toast.error('Quiz not found for export.');
       return;
     }
@@ -40,15 +40,17 @@ const MyQuizzesPage: React.FC = () => {
     exportContent += `\n`;
 
     quizToExport.questions.forEach((question, qIndex) => {
-      exportContent += `Question ${qIndex + 1}: ${question.questionText}\n`;
+      // ⭐ FIX: Changed from question.questionText to question.text ⭐
+      exportContent += `Question ${qIndex + 1}: ${question.text}\n`; 
       if (question.type === 'multiple_choice') {
+        const correctOptionIndex = question.options.indexOf(question.correctAnswer); // ⭐ FIX: Get index from correctAnswer ⭐
         question.options.forEach((option, oIndex) => {
-          exportContent += `  ${String.fromCharCode(65 + oIndex)}. ${option}\n`;
+          exportContent += `  ${String.fromCharCode(65 + oIndex)}. ${option}\n`;
         });
-        const correctOptionText = question.options[question.correctOptionIndex];
-        exportContent += `  Correct Answer: ${String.fromCharCode(65 + question.correctOptionIndex)}. ${correctOptionText}\n\n`;
+        const correctOptionText = question.correctAnswer; // correctAnswer is already the text value
+        exportContent += `  Correct Answer: ${String.fromCharCode(65 + correctOptionIndex)}. ${correctOptionText}\n\n`;
       } else if (question.type === 'true_false') {
-        exportContent += `  Correct Answer: ${question.correctAnswer}\n\n`;
+        exportContent += `  Correct Answer: ${question.correctAnswer}\n\n`;
       }
     });
 
@@ -61,7 +63,6 @@ const MyQuizzesPage: React.FC = () => {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    // ⭐ NEW: Use toast for success message after export
     toast.success(`Quiz "${quizToExport.title}" exported successfully!`);
   };
 
