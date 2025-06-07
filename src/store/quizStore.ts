@@ -21,8 +21,10 @@ import { db, functions } from '../firebase/config';
 import { httpsCallable } from 'firebase/functions';
 import { useAuthStore } from './authStore';
 
-interface RawQuizDocument extends DocumentData {
-  createdAt?: Timestamp | number;
+// We need a specific type for data coming out of Firestore that might have Timestamps.
+// It extends Quiz, but redefines 'createdAt' to be a Timestamp.
+interface FirestoreQuizDocument extends Omit<Quiz, 'createdAt'>, DocumentData {
+  createdAt?: Timestamp; // When reading from Firestore, it could be a Timestamp
 }
 
 interface RawQuizAttemptDocument extends DocumentData {
@@ -123,32 +125,84 @@ export const useQuizStore = create<QuizState>((set, get) => ({
   },
 
   saveQuiz: async (quiz: Quiz, configUsedToGenerate?: QuizConfig) => {
+    set({ loading: true, error: null });
     try {
       const auth = getAuth();
       const currentUser = auth.currentUser;
       const createdBy = currentUser?.uid || 'anonymous';
 
-      const quizToSave = { ...quiz };
+      // Start with the quiz data, then adjust for Firestore storage
+      // Use 'unknown' as an intermediate to allow casting properties safely
+      let quizDataForFirestore: FirestoreQuizDocument = {
+        ...(quiz as Omit<Quiz, 'createdAt'>), // Cast quiz to omit 'createdAt'
+        // If quiz.createdAt is a number, convert it to Timestamp. Otherwise, it's already a Timestamp or undefined.
+        createdAt: typeof quiz.createdAt === 'number' ? Timestamp.fromMillis(quiz.createdAt) : quiz.createdAt as Timestamp,
+      } as FirestoreQuizDocument;
 
-      if (!quizToSave.id) {
-        quizToSave.createdAt = Timestamp.now().toMillis();
-        quizToSave.createdBy = createdBy;
-        quizToSave.status = 'active';
+      if (!quizDataForFirestore.id) {
+        // This block handles new quizzes being saved for the first time
+        quizDataForFirestore.createdAt = Timestamp.now(); // Store as Timestamp directly
+        quizDataForFirestore.createdBy = createdBy;
+        quizDataForFirestore.status = 'active'; // Fix: Ensure new quizzes are saved as 'active'
+
         if (configUsedToGenerate) {
-          quizToSave.createdFromQuizConfig = configUsedToGenerate;
+          quizDataForFirestore.createdFromQuizConfig = configUsedToGenerate;
         } else if (quiz.createdFromQuizConfig) {
-          quizToSave.createdFromQuizConfig = quiz.createdFromQuizConfig;
+          quizDataForFirestore.createdFromQuizConfig = quiz.createdFromQuizConfig;
         }
 
-        const docRef = await addDoc(collection(db, 'quizzes'), quizToSave);
-        quizToSave.id = docRef.id;
+        const docRef = await addDoc(collection(db, 'quizzes'), quizDataForFirestore);
+        quizDataForFirestore.id = docRef.id;
+
+        // Optimistic update for new quizzes: Convert Timestamp to millis for client state
+        const quizForState: Quiz = {
+          ...(quizDataForFirestore as Omit<FirestoreQuizDocument, 'createdAt'>), // Cast without createdAt
+          id: quizDataForFirestore.id!, // Assumed to be set after addDoc
+          createdAt: (quizDataForFirestore.createdAt as Timestamp).toMillis(),
+        } as Quiz; // Final cast to Quiz
+
+        set((state) => ({
+          quizzes: [
+            quizForState,
+            ...state.quizzes.filter(q => q.id !== quizForState.id)
+          ].sort((a, b) => b.createdAt - a.createdAt),
+          loading: false,
+        }));
       } else {
-        await setDoc(doc(db, 'quizzes', quizToSave.id), quizToSave, { merge: true });
+        // This block handles updates to existing quizzes
+        // If createdAt is a number (from Quiz interface), convert it to Timestamp for Firestore
+        if (typeof quizDataForFirestore.createdAt === 'number') {
+          quizDataForFirestore.createdAt = Timestamp.fromMillis(quizDataForFirestore.createdAt);
+        } else if (!('createdAt' in quizDataForFirestore) || quizDataForFirestore.createdAt === undefined) {
+          // If createdAt is missing or undefined, set it to now for consistency
+          quizDataForFirestore.createdAt = Timestamp.now();
+        }
+
+        await setDoc(doc(db, 'quizzes', quizDataForFirestore.id), quizDataForFirestore, { merge: true });
+
+        // Optimistic update for existing quizzes: Convert Timestamp to millis for client state
+        const quizForState: Quiz = {
+          ...(quizDataForFirestore as Omit<FirestoreQuizDocument, 'createdAt'>), // Cast without createdAt
+          id: quizDataForFirestore.id,
+          createdAt: (quizDataForFirestore.createdAt as Timestamp).toMillis(),
+        } as Quiz; // Final cast to Quiz
+
+        set((state) => ({
+          quizzes: state.quizzes.map((q) =>
+            q.id === quizForState.id
+              ? quizForState
+              : q
+          ),
+          currentQuiz: state.currentQuiz?.id === quizForState.id
+            ? quizForState
+            : state.currentQuiz,
+          loading: false,
+        }));
       }
-      await get().fetchQuizzes({}); // Refetch quizzes after saving
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving quiz:', error);
-      set({ error: 'Error saving quiz' });
+      const errorMessage = error.message || 'Error saving quiz';
+      set({ error: errorMessage, loading: false });
       throw error;
     }
   },
@@ -158,17 +212,20 @@ export const useQuizStore = create<QuizState>((set, get) => ({
     try {
       const quizDoc = await getDoc(doc(db, 'quizzes', id));
       if (quizDoc.exists()) {
-        const rawData = quizDoc.data() as RawQuizDocument;
+        const rawData = quizDoc.data() as FirestoreQuizDocument; // Use FirestoreQuizDocument
+
+        // Ensure createdAt is always a number (milliseconds) for the client-side Quiz type
         const createdAtMillis = rawData.createdAt instanceof Timestamp
           ? rawData.createdAt.toMillis()
-          : (typeof rawData.createdAt === 'number' ? rawData.createdAt : Date.now());
+          : Date.now(); // Fallback if data is malformed or missing
 
-        const fetchedQuizData = {
-          id: quizDoc.id,
-          ...(rawData as Omit<Quiz, 'id' | 'createdAt' | 'status'>),
-          createdAt: createdAtMillis,
-          status: (rawData as Quiz).status || 'active',
-        } as Quiz;
+        // Corrected construction of fetchedQuizData
+        const fetchedQuizData: Quiz = {
+          ...rawData, // Spread all properties from rawData first
+          id: quizDoc.id, // Override id with the actual document ID
+          createdAt: createdAtMillis, // Override createdAt with the converted number
+          status: (rawData.status as Quiz['status']) || 'active', // Ensure status type is correct, default to 'active'
+        };
 
         const authState = useAuthStore.getState();
         const isAdmin = authState.user?.isAdmin || false;
@@ -184,8 +241,10 @@ export const useQuizStore = create<QuizState>((set, get) => ({
       } else {
         set({ error: 'Quiz not found', loading: false });
       }
-    } catch (error) {
-      set({ error: 'Failed to fetch quiz', loading: false });
+    } catch (error: any) {
+      const errorMessage = error.message || 'Failed to fetch quiz';
+      set({ error: errorMessage, loading: false });
+      console.error('Error fetching quiz:', error);
     }
   },
 
@@ -203,7 +262,7 @@ export const useQuizStore = create<QuizState>((set, get) => ({
         const rawData = doc.data() as RawQuizAttemptDocument;
         const completedAtTimestamp = rawData.completedAt instanceof Timestamp
           ? rawData.completedAt
-          : Timestamp.now();
+          : Timestamp.now(); // Fallback if somehow not a Timestamp
 
         return {
           id: doc.id,
@@ -212,7 +271,7 @@ export const useQuizStore = create<QuizState>((set, get) => ({
         } as QuizAttempt;
       });
       set({ quizAttempts: attempts, loading: false });
-    } catch (error) {
+    } catch (error: any) {
       set({
         error: error instanceof Error ? error.message : 'Error fetching attempts',
         loading: false,
@@ -226,19 +285,19 @@ export const useQuizStore = create<QuizState>((set, get) => ({
     try {
       const attemptToSave = {
         ...attempt,
-        completedAt: Timestamp.now(),
+        completedAt: Timestamp.now(), // Store as Timestamp directly
         originalQuizConfig: originalQuizConfig || attempt.originalQuizConfig,
       };
       const attemptRef = await addDoc(collection(db, 'quizAttempts'), attemptToSave);
-      await get().fetchUserAttempts(attempt.userId);
+      await get().fetchUserAttempts(attempt.userId); // Refetch user attempts to update list
       set({ loading: false });
       return attemptRef.id;
-    } catch (error) {
+    } catch (error: any) {
       const errorMsg =
         error instanceof Error ? error.message : 'Failed to save quiz attempt';
       set({ error: errorMsg, loading: false });
       console.error('Error saving quiz attempt:', error);
-      return '';
+      throw error;
     }
   },
 
@@ -266,18 +325,11 @@ export const useQuizStore = create<QuizState>((set, get) => ({
         quizzesQuery = query(quizzesQuery, where('title', '==', filter.title));
       }
 
-      // --- REVISED STATUS FILTERING LOGIC ---
       if (filter.status && filter.status !== 'all') {
-        // If a specific status ('active' or 'deleted') is provided and it's not 'all', apply it.
         quizzesQuery = query(quizzesQuery, where('status', '==', filter.status));
       } else if (!filter.status) {
-        // If no status is explicitly provided (undefined), default to 'active'.
-        // This is important for general quiz lists or initial admin view.
         quizzesQuery = query(quizzesQuery, where('status', '==', 'active'));
       }
-      // If filter.status is 'all', no 'where' clause for status is added,
-      // allowing all statuses to be fetched, which is the desired behavior for 'all'.
-      // --- END REVISED STATUS FILTERING LOGIC ---
 
       if (filter.visibility) {
         quizzesQuery = query(quizzesQuery, where('visibility', '==', filter.visibility));
@@ -291,21 +343,22 @@ export const useQuizStore = create<QuizState>((set, get) => ({
 
       const querySnapshot = await getDocs(quizzesQuery);
       const fetchedQuizzes = querySnapshot.docs.map((doc) => {
-        const rawData = doc.data() as RawQuizDocument;
+        const rawData = doc.data() as FirestoreQuizDocument; // Use FirestoreQuizDocument
 
         const createdAtMillis = rawData.createdAt instanceof Timestamp
           ? rawData.createdAt.toMillis()
-          : (typeof rawData.createdAt === 'number' ? rawData.createdAt : Date.now());
+          : Date.now(); // Fallback if data is malformed or missing
 
+        // Corrected construction of the returned Quiz object
         return {
-          id: doc.id,
-          ...(rawData as Omit<Quiz, 'id' | 'createdAt' | 'status'>),
-          createdAt: createdAtMillis,
-          status: (rawData as Quiz).status || 'active',
-        } as Quiz;
+          ...rawData, // Spread all properties from rawData first
+          id: doc.id, // Override id with the actual document ID
+          createdAt: createdAtMillis, // Override createdAt with the converted number
+          status: (rawData.status as Quiz['status']) || 'active', // Ensure status type is correct, default to 'active'
+        };
       });
       set({ quizzes: fetchedQuizzes, loading: false });
-    } catch (error) {
+    } catch (error: any) {
       const errorMsg = error instanceof Error ? error.message : 'Failed to fetch quizzes';
       set({ error: errorMsg, loading: false });
       console.error('Error fetching quizzes:', error);
@@ -365,6 +418,9 @@ export const useQuizStore = create<QuizState>((set, get) => ({
         quizzes: state.quizzes.map((quiz) =>
           quiz.id === quizId ? { ...quiz, status: newStatus } : quiz
         ),
+        currentQuiz: state.currentQuiz?.id === quizId
+          ? { ...state.currentQuiz, status: newStatus }
+          : state.currentQuiz,
       }));
 
       console.log(`Quiz ${quizId} status updated to ${newStatus}`);
