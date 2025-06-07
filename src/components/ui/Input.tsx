@@ -1,8 +1,9 @@
+// src/components/ui/Input.tsx
 import React, { InputHTMLAttributes } from 'react';
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
-  error?: string;
+  error?: string; // This is the prop for displaying validation errors
   leftIcon?: React.ReactNode;
   rightIcon?: React.ReactNode;
   fullWidth?: boolean;
@@ -18,6 +19,7 @@ const Input: React.FC<InputProps> = ({
   id,
   ...props
 }) => {
+  // Use the provided id or generate a unique one if not provided
   const inputId = id || `input-${Math.random().toString(36).substring(2, 9)}`;
 
   return (
@@ -39,12 +41,13 @@ const Input: React.FC<InputProps> = ({
         <input
           id={inputId}
           className={`
-            block rounded-md border-slate-300 shadow-sm
-            focus:border-sky-500 focus:ring-sky-500 sm:text-sm
-            ${error ? 'border-red-300 text-red-900 placeholder-red-300 focus:border-red-500 focus:ring-red-500' : ''}
+            block w-full rounded-md shadow-sm sm:text-sm py-2 px-3
+            ${error // Apply error styles if there's an error
+              ? 'border-red-300 text-red-900 placeholder-red-300 focus:border-red-500 focus:ring-red-500'
+              : 'border-slate-300 focus:border-sky-500 focus:ring-sky-500' // Default styles
+            }
             ${leftIcon ? 'pl-10' : ''}
             ${rightIcon ? 'pr-10' : ''}
-            ${fullWidth ? 'w-full' : ''}
             ${className}
           `}
           {...props}
@@ -56,7 +59,9 @@ const Input: React.FC<InputProps> = ({
         )}
       </div>
       {error && (
-        <p className="mt-1 text-sm text-red-600">{error}</p>
+        <p className="mt-1 text-sm text-red-600" role="alert">
+          {error}
+        </p>
       )}
     </div>
   );

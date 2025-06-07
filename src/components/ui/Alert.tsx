@@ -1,6 +1,6 @@
 // src/components/ui/Alert.tsx
 import React from 'react';
-import { Info, XCircle, CheckCircle } from 'lucide-react';
+import { Info, XCircle, CheckCircle, AlertTriangle } from 'lucide-react'; // ⭐ MODIFIED: Added AlertTriangle for warning
 
 interface AlertProps {
   type: 'info' | 'success' | 'warning' | 'error';
@@ -28,7 +28,8 @@ const Alert: React.FC<AlertProps> = ({ type, message, className, icon }) => {
     case 'warning':
       bgColorClass = 'bg-yellow-50';
       textColorClass = 'text-yellow-800';
-      if (!icon) iconComponent = <Info className="h-5 w-5 text-yellow-500" />; // Or specific warning icon
+      // ⭐ MODIFIED: Use AlertTriangle for warning icon
+      if (!icon) iconComponent = <AlertTriangle className="h-5 w-5 text-yellow-500" />;
       break;
     case 'error':
       bgColorClass = 'bg-red-50';

@@ -1,71 +1,97 @@
 // src/pages/GenerateQuizPage.tsx
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { AlertCircle } from 'lucide-react'; // For error icons, consistent with other UI
-import QuizForm from '../components/admin/QuizForm'; // ⭐ Import the refactored QuizForm
-import QuizPlayer from '../components/quiz/QuizPlayer'; // ⭐ Import QuizPlayer for the preview
-import { Quiz } from '../types'; // Import Quiz type
-import { useQuizStore } from '../store/quizStore'; // To use saveQuiz, and potentially global loading/error
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { AlertCircle, Loader2 } from 'lucide-react';
+import QuizForm from '../components/admin/QuizForm';
+import QuizPlayer from '../components/quiz/QuizPlayer';
+import { Quiz, QuizConfig } from '../types';
+import { useQuizStore } from '../store/quizStore';
+import toast from 'react-hot-toast';
 
 const GenerateQuizPage: React.FC = () => {
   const navigate = useNavigate();
-  // We'll manage the generatedQuiz, loading, and error states directly in this page
-  // because QuizForm will now pass them up via props and its own internal state.
+  const location = useLocation();
   const [generatedQuiz, setGeneratedQuiz] = useState<Quiz | null>(null);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
 
-  const saveQuiz = useQuizStore((state) => state.saveQuiz); // Function to save the generated quiz
+  const saveQuiz = useQuizStore((state) => state.saveQuiz);
+  const { generateQuiz } = useQuizStore();
 
-  // This callback will be passed to QuizForm
+  // State to hold initial quiz config passed from other pages (e.g., QuizResult)
+  const [initialConfig, setInitialConfig] = useState<QuizConfig | null>(null);
+
+  // Effect to check for initial quiz config on component mount
+  useEffect(() => {
+    if (location.state?.initialQuizConfig) {
+      const config = location.state.initialQuizConfig as QuizConfig;
+      setInitialConfig(config);
+      // Clean up the state so it doesn't persist on refresh or subsequent visits
+      // Using navigate with replace: true ensures the current history entry is replaced
+      // and state is cleared, preventing re-triggering on back/forward navigation.
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location, navigate]);
+
+  // Effect to trigger generation when initialConfig is set
+  useEffect(() => {
+    const triggerAutoGeneration = async () => {
+      if (initialConfig) {
+        handleGenerationStart(); // Set generating state for the parent page's display
+        try {
+          const quiz = await generateQuiz(initialConfig); // Call the store's generation function
+          handleQuizGenerated(quiz); // Update generated quiz state
+          toast.success('Generated a similar quiz!'); // Notify user
+        } catch (err: any) {
+          handleGenerationError(err.message || 'Failed to generate quiz automatically.');
+        } finally {
+          setInitialConfig(null); // Clear initial config after attempt to prevent re-generation
+        }
+      }
+    };
+    triggerAutoGeneration();
+  }, [initialConfig, generateQuiz]); // Depend on initialConfig and generateQuiz
+
   const handleQuizGenerated = (quiz: Quiz) => {
     setGeneratedQuiz(quiz);
-    setIsGenerating(false); // Generation is complete
-    setGenerationError(null); // Clear any previous errors
+    setIsGenerating(false);
+    setGenerationError(null);
   };
 
-  // This function is for handling errors that might bubble up from QuizForm
-  // or for the initial state of the generation process
-  // NOTE: For now, QuizForm internally manages its own loading/error,
-  // but if you want to set these at the page level before generation, you'd call this.
   const handleGenerationStart = () => {
     setIsGenerating(true);
     setGenerationError(null);
-    setGeneratedQuiz(null); // Clear previous quiz when new generation starts
+    setGeneratedQuiz(null);
   };
 
   const handleGenerationError = (errorMessage: string) => {
     setIsGenerating(false);
     setGenerationError(errorMessage);
-    setGeneratedQuiz(null); // Clear quiz if there's an error
+    setGeneratedQuiz(null);
   };
 
   const handleSaveGeneratedQuiz = async () => {
     if (!generatedQuiz) {
-      setGenerationError('No quiz to save. Please generate one first.');
+      toast.error('No quiz to save. Please generate one first.');
       return;
     }
 
     try {
-      // The saveQuiz function in your store likely takes the full Quiz object
       await saveQuiz(generatedQuiz);
-      alert('Generated quiz saved to Firestore!');
+      toast.success('Generated quiz saved successfully!');
       setGeneratedQuiz(null); // Clear the preview after saving
-      // Optionally navigate to a page showing saved quizzes
-      navigate('/admin/quizzes'); // Example path
+      navigate('/my-quizzes'); // Navigate to my quizzes after saving
     } catch (saveError: any) {
       console.error('Error saving generated quiz:', saveError);
-      setGenerationError(saveError.message || 'Failed to save generated quiz.');
+      toast.error(saveError.message || 'Failed to save generated quiz.');
     }
   };
 
   const handlePlayGeneratedQuiz = () => {
     if (generatedQuiz) {
-      // Navigate to the /quiz/:id page to play the generated quiz
-      // The QuizPlayer on that page will fetch the quiz by ID
       navigate(`/quiz/${generatedQuiz.id}`);
     } else {
-      setGenerationError('No quiz to play. Please generate one first.');
+      toast.error('No quiz to play. Please generate one first.');
     }
   };
 
@@ -73,29 +99,25 @@ const GenerateQuizPage: React.FC = () => {
     <div className="container mx-auto p-6">
       <h1 className="text-3xl font-bold text-gray-800 mb-8 text-center">Generate and Preview Quiz</h1>
 
-      {/* Two-Column Layout */}
       <div className="flex flex-col md:flex-row gap-8">
-        {/* Left Column: Quiz Generation Form */}
         <div className="md:w-1/2">
           <h2 className="text-2xl font-bold text-gray-700 mb-4">Quiz Configuration</h2>
           <QuizForm
             onQuizGenerated={handleQuizGenerated}
-            isGenerating={isGenerating} // Pass loading state to QuizForm
-            generationError={generationError} // Pass error state to QuizForm
-            // QuizForm manages its own submission and loading/error states,
-            // this page mostly reacts to its `onQuizGenerated` callback.
-            // `isGenerating` and `generationError` props are for QuizForm to display them
-            // based on the parent's external control.
+            isGenerating={isGenerating} 
+            generationError={generationError} 
+            initialQuizConfig={initialConfig || undefined} // Pass initialConfig to QuizForm
+            onGenerationStart={handleGenerationStart} // Pass these to QuizForm to manage parent state
+            onGenerationError={handleGenerationError} // Pass these to QuizForm to manage parent state
           />
         </div>
 
-        {/* Right Column: Quiz Preview */}
         <div className="md:w-1/2">
           <h2 className="text-2xl font-bold text-gray-700 mb-4">Quiz Preview</h2>
           <div className="bg-white p-6 rounded-lg shadow-md min-h-[300px] flex flex-col justify-between">
             {isGenerating && (
               <div className="flex items-center justify-center h-full text-blue-600 text-lg">
-                <AlertCircle className="h-6 w-6 mr-2 animate-spin" />
+                <Loader2 className="h-6 w-6 mr-2 animate-spin" />
                 Generating quiz...
               </div>
             )}
@@ -115,10 +137,7 @@ const GenerateQuizPage: React.FC = () => {
 
             {generatedQuiz && !isGenerating && !generationError && (
               <>
-                {/* ⭐ MODIFIED: Pass generatedQuiz as quizData to match QuizPlayer's prop name */}
-                {/* Also remove showResultsImmediately if QuizPlayer doesn't explicitly use it for the main flow */}
                 <QuizPlayer quizData={generatedQuiz} />
-                {/* Action buttons for the generated quiz */}
                 <div className="mt-6 flex flex-col sm:flex-row gap-4 justify-end">
                   <button
                     onClick={handlePlayGeneratedQuiz}

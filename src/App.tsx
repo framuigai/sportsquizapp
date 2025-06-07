@@ -1,6 +1,8 @@
+// src/App.tsx
 import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import Layout from './components/layout/Layout';
+import { Toaster } from 'react-hot-toast'; 
+import Layout from './components/layout/Layout'; 
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
@@ -9,7 +11,7 @@ import QuizPage from './pages/QuizPage';
 import HistoryPage from './pages/HistoryPage';
 import AdminPage from './pages/AdminPage';
 import GenerateQuizPage from './pages/GenerateQuizPage';
-import MyQuizzesPage from './pages/MyQuizzesPage'; // ⭐ NEW IMPORT ⭐
+import MyQuizzesPage from './pages/MyQuizzesPage';
 import { useAuthStore } from './store/authStore';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -42,7 +44,7 @@ const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   }
 
   if (!user || !user.isAdmin) {
-    return <Navigate to="/" replace />; // Redirect to home if not admin
+    return <Navigate to="/" replace />; 
   }
 
   return <>{children}</>;
@@ -55,8 +57,35 @@ function App() {
 
   return (
     <Router>
+      <Toaster 
+        position="top-center"
+        reverseOrder={false}
+        toastOptions={{
+          className: '',
+          duration: 3000,
+          style: {
+            background: '#fff',
+            color: '#333',
+          },
+          // ⭐ MODIFIED: Applied consistent styling for success and error toasts
+          success: {
+            duration: 3000,
+            style: {
+              background: '#28a745', // Green background
+              color: '#fff',        // White text
+            },
+          },
+          error: {
+            duration: 4000,
+            style: {
+              background: '#dc3545', // Red background
+              color: '#fff',        // White text
+            },
+          },
+        }}
+      />
       <Routes>
-        <Route path="/" element={<Layout />}>
+        <Route path="/" element={<Layout />}> 
           <Route index element={<HomePage />} />
           <Route path="login" element={<LoginPage />} />
           <Route path="signup" element={<SignupPage />} />
@@ -93,7 +122,6 @@ function App() {
               </ProtectedRoute>
             }
           />
-          {/* ⭐ NEW ROUTE FOR MY QUIZZES PAGE ⭐ */}
           <Route
             path="my-quizzes"
             element={

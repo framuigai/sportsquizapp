@@ -1,42 +1,35 @@
 // src/pages/QuizzesPage.tsx
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, Loader2, BookOpenText, Download } from 'lucide-react';
+import { AlertCircle, Loader2, BookOpenText } from 'lucide-react'; // Removed Download as it's not used directly here
 import QuizCard from '../components/quiz/QuizCard';
 import QuizFilter from '../components/quiz/QuizFilter';
 import Alert from '../components/ui/Alert';
-import { useQuizStore } from '../store/quizStore'; // Import useQuizStore
-import { QuizFilter as QuizFilterType, Quiz } from '../types'; // Import Quiz type
+import { useQuizStore } from '../store/quizStore';
+import { QuizFilter as QuizFilterType, Quiz } from '../types';
 import { useAuthStore } from '../store/authStore';
-// Removed deleteQuizCallable import as it's no longer used for soft delete here
-// import { deleteQuizCallable } from '../firebase/functions';
+import toast from 'react-hot-toast'; // ⭐ NEW: Import toast
 
 const QuizzesPage: React.FC = () => {
-  // Destructure updateQuizStatus from the store
   const { quizzes, loading, error, fetchQuizzes, updateQuizStatus } = useQuizStore();
   const { user } = useAuthStore();
   const isAdmin = user?.isAdmin || false;
 
   const [filter, setFilter] = useState<QuizFilterType>({});
-  const [updateLoading, setUpdateLoading] = useState<string | null>(null); // For loading state on actions
+  const [updateLoading, setUpdateLoading] = useState<string | null>(null);
 
   useEffect(() => {
-    // For regular users, only fetch active and global quizzes
     fetchQuizzes({ ...filter, visibility: 'global', status: 'active' });
-  }, [fetchQuizzes, filter]); // Added filter to dependency array
+  }, [fetchQuizzes, filter]);
 
   const handleFilterChange = (newFilter: QuizFilterType) => {
     setFilter(newFilter);
     fetchQuizzes({ ...newFilter, visibility: 'global', status: 'active' });
   };
 
-  // ⭐ MODIFIED: Use updateQuizStatus for soft delete ⭐
   const handleToggleQuizStatus = async (quiz: Quiz) => {
-    // In QuizzesPage, a non-admin might only see an "Archive" option if it's their own quiz,
-    // or if the action is to mark as deleted from a public list (only for admins).
-    // For non-admins on QuizzesPage, the soft delete action might not even be available.
-    // If it's an admin on QuizzesPage, they can use this to mark global quizzes as deleted.
     if (!isAdmin) {
-      alert("You don't have permission to perform this action.");
+      // ⭐ MODIFIED: Use toast instead of alert
+      toast.error("You don't have permission to perform this action.");
       return;
     }
 
@@ -50,13 +43,13 @@ const QuizzesPage: React.FC = () => {
     setUpdateLoading(quiz.id);
     try {
       await updateQuizStatus(quiz.id, newStatus);
-      alert(`Quiz "${quiz.title}" successfully ${action}d.`);
-      // Re-fetch to ensure the list is accurate based on the 'active' status filter for non-admins
+      // ⭐ MODIFIED: Use toast instead of alert
+      toast.success(`Quiz "${quiz.title}" successfully ${action}d.`);
       fetchQuizzes({ ...filter, visibility: 'global', status: 'active' });
     } catch (err: any) {
       console.error(`Error ${action}ing quiz:`, err);
-      let errorMessage = `Failed to ${action} quiz: ${err.message || 'Unknown error'}`;
-      alert(errorMessage);
+      // ⭐ MODIFIED: Use toast instead of alert
+      toast.error(`Failed to ${action} quiz: ${err.message || 'Unknown error'}`);
     } finally {
       setUpdateLoading(null);
     }
@@ -65,7 +58,8 @@ const QuizzesPage: React.FC = () => {
   const handleExportQuiz = (quizId: string) => {
     const quizToExport = quizzes.find(q => q.id === quizId);
     if (!quizToExport) {
-      alert('Quiz not found for export.');
+      // ⭐ MODIFIED: Use toast instead of alert
+      toast.error('Quiz not found for export.');
       return;
     }
 
@@ -99,6 +93,8 @@ const QuizzesPage: React.FC = () => {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+    // ⭐ NEW: Use toast for success message after export
+    toast.success(`Quiz "${quizToExport.title}" exported successfully!`);
   };
 
   return (
@@ -148,7 +144,6 @@ const QuizzesPage: React.FC = () => {
               key={quiz.id}
               quiz={quiz}
               isAdmin={isAdmin}
-              // Only provide onToggleStatus if the user is an admin
               onToggleStatus={isAdmin ? handleToggleQuizStatus : undefined}
               onExport={handleExportQuiz}
               isSoftDeleted={quiz.status === 'deleted'}

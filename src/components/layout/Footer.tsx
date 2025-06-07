@@ -1,9 +1,11 @@
+// src/components/layout/Footer.tsx
 import React from 'react';
+import { Link } from 'react-router-dom'; // ⭐ MODIFIED: Import Link
 import { Trophy } from 'lucide-react';
 
 const Footer: React.FC = () => {
   return (
-    <footer className="bg-slate-800 text-white py-8">
+    <footer className="bg-slate-800 text-white py-8 mt-auto"> {/* Added mt-auto to push footer to bottom */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <div>
@@ -21,13 +23,20 @@ const Footer: React.FC = () => {
             <h3 className="text-lg font-semibold mb-4">Quick Links</h3>
             <ul className="space-y-2 text-slate-300">
               <li>
-                <a href="/" className="hover:text-sky-400 transition-colors">Home</a>
+                {/* ⭐ MODIFIED: Use Link for internal navigation */}
+                <Link to="/" className="hover:text-sky-400 transition-colors">Home</Link>
               </li>
               <li>
-                <a href="/quizzes" className="hover:text-sky-400 transition-colors">Quizzes</a>
+                <Link to="/quizzes" className="hover:text-sky-400 transition-colors">Global Quizzes</Link>
               </li>
               <li>
-                <a href="/history" className="hover:text-sky-400 transition-colors">History</a>
+                <Link to="/my-quizzes" className="hover:text-sky-400 transition-colors">My Quizzes</Link> {/* Added My Quizzes */}
+              </li>
+              <li>
+                <Link to="/generate-quiz" className="hover:text-sky-400 transition-colors">Generate Quiz</Link> {/* Added Generate Quiz */}
+              </li>
+              <li>
+                <Link to="/history" className="hover:text-sky-400 transition-colors">History</Link>
               </li>
             </ul>
           </div>

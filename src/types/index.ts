@@ -9,52 +9,57 @@ export type User = {
   isAdmin?: boolean;
 };
 
-// --- MODIFICATION 1: Update QuizConfig to include all generation parameters & visibility ---
 export interface QuizConfig {
-  title?: string; // ✅ ADDED: Optional title for the quiz
-  category: string; // ✅ ADDED: Category is typically a core parameter for generation
+  title?: string;
+  category: string;
   difficulty: 'easy' | 'medium' | 'hard';
   numberOfQuestions: number;
-  quizType: 'multiple_choice' | 'true_false'; // This is the key addition for Step 1
-  team?: string; // ✅ ADDED: Optional team parameter
-  event?: string; // ✅ ADDED: Optional event parameter
-  country?: string; // ✅ ADDED: Optional country parameter
-  visibility?: 'global' | 'private'; // ✅ ADDED: For frontend forms to suggest visibility
+  quizType: 'multiple_choice' | 'true_false';
+  team?: string;
+  event?: string;
+  country?: string;
+  visibility?: 'global' | 'private';
 }
 
-// ⭐ IMPORTANT FIX: Use Discriminated Unions for QuizQuestion ⭐
+// ⭐ DEFINITIVE FIX: Updated QuizQuestion type ⭐
+// Changed 'questionText' to 'text' for consistency with QuizResult.tsx
+// Added 'category' and 'difficulty' as optional properties,
+// as they are needed to reconstruct QuizConfig for "Generate Similar Quiz"
 export type QuizQuestion =
   | {
       id: string;
-      questionText: string; // Changed from 'text' to 'questionText' for consistency with frontend
+      text: string; // Renamed from questionText to text
       type: 'multiple_choice';
-      options: string[]; // ⭐ REQUIRED for multiple_choice ⭐
-      correctOptionIndex: number; // ⭐ REQUIRED for multiple_choice ⭐
+      options: string[];
+      correctAnswer: string; // The value like "A" or "True"
+      category?: string; // Added for 'Generate Similar Quiz'
+      difficulty?: 'easy' | 'medium' | 'hard'; // Added for 'Generate Similar Quiz'
     }
   | {
       id: string;
-      questionText: string; // Changed from 'text' to 'questionText' for consistency with frontend
+      text: string; // Renamed from questionText to text
       type: 'true_false';
-      correctAnswer: 'True' | 'False'; // Assuming correct answer is 'True' or 'False' for true/false questions
+      correctAnswer: 'True' | 'False';
+      category?: string; // Added for 'Generate Similar Quiz'
+      difficulty?: 'easy' | 'medium' | 'hard'; // Added for 'Generate Similar Quiz'
     };
 
-
-// --- MODIFICATION 2: Add quizType to the Quiz interface ---
 export type Quiz = {
   id: string;
   title: string;
   category: string;
-  subCategory?: string; // Keep if still relevant
+  subCategory?: string;
   team?: string;
   country?: string;
   event?: string;
   difficulty: 'easy' | 'medium' | 'hard';
   questions: QuizQuestion[];
   createdAt: number;
+  createdFromQuizConfig?: QuizConfig; // ⭐ NEW: Store the original config to make "Generate Similar Quiz" more robust ⭐
   createdBy: string;
   visibility: 'global' | 'private';
-  quizType: 'multiple_choice' | 'true_false'; // ✅ ADDED: Crucial for displaying saved quizzes correctly
-  status: 'active' | 'deleted'; // ⭐ NEW: Added status field for soft delete ⭐
+  quizType: 'multiple_choice' | 'true_false';
+  status: 'active' | 'deleted';
 };
 
 export type QuizAttempt = {
@@ -71,6 +76,9 @@ export type QuizAttempt = {
   }[];
   completedAt: Timestamp;
   timeSpent: number;
+  // ⭐ NEW: Store the quiz's original config or essential details for 'Retake Similar Quiz' ⭐
+  // This is better than deriving from questions if you want to regenerate based on the *original* config
+  originalQuizConfig?: QuizConfig;
 };
 
 export type QuizFilter = {
@@ -82,7 +90,7 @@ export type QuizFilter = {
   difficulty?: 'easy' | 'medium' | 'hard';
   visibility?: 'global' | 'private';
   createdBy?: string;
-  status?: 'active' | 'deleted' | 'all'; // ⭐ NEW: Added status filter option ⭐
+  status?: 'active' | 'deleted' | 'all';
 };
 
 export type Category = {

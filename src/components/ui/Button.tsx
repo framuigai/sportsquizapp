@@ -1,7 +1,7 @@
 import React, { ButtonHTMLAttributes } from 'react';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
+  variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' | 'tertiary'; // Added 'tertiary'
   size?: 'sm' | 'md' | 'lg';
   isLoading?: boolean;
   fullWidth?: boolean;
@@ -29,6 +29,7 @@ const Button: React.FC<ButtonProps> = ({
     outline: 'border border-slate-300 text-slate-700 hover:bg-slate-100 focus-visible:ring-slate-500',
     ghost: 'text-slate-700 hover:bg-slate-100 hover:text-slate-900 focus-visible:ring-slate-500',
     danger: 'bg-red-500 text-white hover:bg-red-600 focus-visible:ring-red-500',
+    tertiary: 'bg-purple-500 text-white hover:bg-purple-600 focus-visible:ring-purple-500', // Added tertiary styles
   };
 
   const sizes = {

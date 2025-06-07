@@ -10,14 +10,14 @@ import {
   orderBy,
   limit,
   doc,
-  setDoc, // Keep setDoc for updates
+  setDoc,
   addDoc,
   Timestamp,
   DocumentData,
   Query,
 } from 'firebase/firestore';
 import { Quiz, QuizAttempt, QuizFilter, QuizConfig } from '../types';
-import { db, functions } from '../firebase/config'; // 'db' is correctly imported here
+import { db, functions } from '../firebase/config';
 import { httpsCallable } from 'firebase/functions';
 import { useAuthStore } from './authStore';
 
@@ -53,13 +53,12 @@ interface QuizState {
   error: string | null;
 
   generateQuiz: (config: QuizConfig) => Promise<Quiz>;
-  saveQuiz: (quiz: Quiz) => Promise<void>;
+  saveQuiz: (quiz: Quiz, configUsedToGenerate?: QuizConfig) => Promise<void>; // MODIFIED: Added configUsedToGenerate
   fetchQuizById: (id: string) => Promise<void>;
   fetchUserAttempts: (userId: string) => Promise<void>;
-  saveQuizAttempt: (attempt: Omit<QuizAttempt, 'id'>) => Promise<string>;
+  saveQuizAttempt: (attempt: Omit<QuizAttempt, 'id'>, originalQuizConfig?: QuizConfig) => Promise<string>; // MODIFIED: Added originalQuizConfig
   fetchQuizzes: (filter?: QuizFilter) => Promise<void>;
   updateQuizVisibility: (quizId: string, newVisibility: 'global' | 'private') => Promise<void>;
-  // ⭐ NEW: Action to update quiz status ⭐
   updateQuizStatus: (quizId: string, newStatus: 'active' | 'deleted') => Promise<void>;
 }
 
@@ -111,8 +110,11 @@ export const useQuizStore = create<QuizState>((set, get) => ({
         throw new Error('Generated quiz has no questions or is incomplete (from server response).');
       }
 
-      set({ loading: false, currentQuiz: generatedQuiz });
-      return generatedQuiz;
+      // ⭐ MODIFIED: Attach the config that was used to generate this quiz ⭐
+      const quizWithConfig: Quiz = { ...generatedQuiz, createdFromQuizConfig: config };
+
+      set({ loading: false, currentQuiz: quizWithConfig });
+      return quizWithConfig;
     } catch (err: any) {
       const errorMessage = err.message || 'Error generating quiz';
       set({ error: errorMessage, loading: false, currentQuiz: null });
@@ -121,7 +123,7 @@ export const useQuizStore = create<QuizState>((set, get) => ({
     }
   },
 
-  saveQuiz: async (quiz: Quiz) => {
+  saveQuiz: async (quiz: Quiz, configUsedToGenerate?: QuizConfig) => { // MODIFIED: Accept configUsedToGenerate
     try {
       const auth = getAuth();
       const currentUser = auth.currentUser;
@@ -133,6 +135,13 @@ export const useQuizStore = create<QuizState>((set, get) => ({
         quizToSave.createdAt = Timestamp.now().toMillis();
         quizToSave.createdBy = createdBy;
         quizToSave.status = 'active';
+        // ⭐ NEW: Save the config used to generate it ⭐
+        if (configUsedToGenerate) {
+          quizToSave.createdFromQuizConfig = configUsedToGenerate;
+        } else if (quiz.createdFromQuizConfig) {
+          quizToSave.createdFromQuizConfig = quiz.createdFromQuizConfig;
+        }
+
         const docRef = await addDoc(collection(db, 'quizzes'), quizToSave);
         quizToSave.id = docRef.id;
       } else {
@@ -214,12 +223,14 @@ export const useQuizStore = create<QuizState>((set, get) => ({
     }
   },
 
-  saveQuizAttempt: async (attempt) => {
+  saveQuizAttempt: async (attempt, originalQuizConfig) => { // MODIFIED: Accept originalQuizConfig
     set({ loading: true, error: null });
     try {
       const attemptToSave = {
         ...attempt,
         completedAt: Timestamp.now(),
+        // ⭐ NEW: Save the original quiz config with the attempt ⭐
+        originalQuizConfig: originalQuizConfig || attempt.originalQuizConfig,
       };
       const attemptRef = await addDoc(collection(db, 'quizAttempts'), attemptToSave);
       await get().fetchUserAttempts(attempt.userId);
@@ -329,9 +340,8 @@ export const useQuizStore = create<QuizState>((set, get) => ({
     }
   },
 
-  // ⭐ NEW: Implementation for updateQuizStatus ⭐
   updateQuizStatus: async (quizId: string, newStatus: 'active' | 'deleted') => {
-    set({ error: null }); // Clear any previous errors
+    set({ error: null });
 
     try {
       const auth = getAuth();
@@ -347,7 +357,6 @@ export const useQuizStore = create<QuizState>((set, get) => ({
       const quizRef = doc(db, 'quizzes', quizId);
       await setDoc(quizRef, { status: newStatus }, { merge: true });
 
-      // Update the state immediately for responsiveness
       set((state) => ({
         quizzes: state.quizzes.map((quiz) =>
           quiz.id === quizId ? { ...quiz, status: newStatus } : quiz

@@ -3,7 +3,8 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Trophy, Clock, BadgeCheck, BarChart4 } from 'lucide-react';
 import Button from '../ui/Button';
-import { QuizAttempt, QuizQuestion } from '../../types';
+import { QuizAttempt, QuizQuestion, QuizConfig } from '../../types'; // Import QuizConfig
+import toast from 'react-hot-toast'; // ⭐ FIXED: Imported toast
 
 interface QuizResultProps {
   quizAttempt: QuizAttempt;
@@ -44,18 +45,16 @@ const QuizResult: React.FC<QuizResultProps> = ({
     resultColor = 'text-red-500';
   }
 
-  // Format time spent
   const formatTime = (seconds: number) => {
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
     return `${minutes}m ${remainingSeconds}s`;
   };
 
-  // Helper function to get the full correct option text
   const getFullCorrectAnswerText = (questionId: string, correctOptionValue: string): string => {
     const question = quizQuestions.find(q => q.id === questionId);
     if (!question) {
-      return correctOptionValue; // Fallback if question not found
+      return correctOptionValue;
     }
 
     if (question.type === 'multiple_choice' && question.options) {
@@ -69,12 +68,43 @@ const QuizResult: React.FC<QuizResultProps> = ({
     return correctOptionValue;
   };
 
-  // ⭐ NEW HELPER FUNCTION: To get the question text ⭐
   const getQuestionText = (questionId: string): string => {
     const question = quizQuestions.find(q => q.id === questionId);
+    // ⭐ FIXED: 'text' property is now correctly on QuizQuestion in types.ts
     return question ? question.text : 'Question text not found.';
   };
 
+  const handleGenerateSimilarQuiz = () => {
+    let initialQuizConfig: QuizConfig | undefined;
+
+    // ⭐ IMPROVED: Prefer using originalQuizConfig from quizAttempt if available ⭐
+    if (quizAttempt.originalQuizConfig) {
+      initialQuizConfig = quizAttempt.originalQuizConfig;
+    } else {
+      // Fallback: Construct config from the first question if original config not stored
+      const sampleQuestion = quizQuestions[0];
+      if (sampleQuestion) {
+        initialQuizConfig = {
+          category: sampleQuestion.category || '', // Now available on QuizQuestion due to types.ts update
+          difficulty: sampleQuestion.difficulty || 'medium', // Now available on QuizQuestion due to types.ts update
+          numberOfQuestions: quizQuestions.length,
+          quizType: sampleQuestion.type,
+          // Add other optional fields like title, event, team, country if they exist on QuizQuestion
+          // title: quizTitle, // You might need to retrieve the quiz title from the Quiz object, not just questions
+          // event: sampleQuestion.event || '',
+          // team: sampleQuestion.team || '',
+          // country: sampleQuestion.country || '',
+        };
+      }
+    }
+
+    if (!initialQuizConfig || !initialQuizConfig.category) { // Category is required for generation
+      toast.error('Could not find sufficient quiz details to generate a similar quiz.');
+      return;
+    }
+    
+    navigate('/generate-quiz', { state: { initialQuizConfig } });
+  };
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8 sm:px-6 lg:px-8 animate-fadeIn">
@@ -160,9 +190,8 @@ const QuizResult: React.FC<QuizResultProps> = ({
                 {quizAttempt.answers.map((answerDetail, index) => (
                   <div key={answerDetail.questionId || index} className="p-3 rounded-md bg-slate-50 border border-slate-200">
                     <p className="font-medium text-slate-800 mb-1">
-                      Question {index + 1}: {/* ⭐ Question Number ⭐ */}
+                      Question {index + 1}:
                     </p>
-                    {/* ⭐ ADDED QUESTION TEXT HERE ⭐ */}
                     <p className="text-base text-slate-700 mb-2">
                         {getQuestionText(answerDetail.questionId)}
                     </p>
@@ -201,6 +230,13 @@ const QuizResult: React.FC<QuizResultProps> = ({
               fullWidth
             >
               Retake Quiz
+            </Button>
+            <Button
+              variant="tertiary"
+              onClick={handleGenerateSimilarQuiz}
+              fullWidth
+            >
+              Generate Similar Quiz
             </Button>
           </div>
         </div>
