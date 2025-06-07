@@ -9,8 +9,9 @@ import * as logger from 'firebase-functions/logger'; // ⭐ NEW: Import logger f
 // Assuming initializeApp(); is called once in functions/src/index.ts.
 
 /**
- * Callable Cloud Function to delete a quiz (Cloud Functions v2).
- * Only administrators can delete quizzes, and only if the quiz's visibility is 'global'.
+ * Callable Cloud Function to soft delete a quiz (Cloud Functions v2).
+ * Only administrators can mark quizzes as 'deleted', and only if the quiz's visibility is 'global'.
+ * The quiz status will be changed to 'deleted', not permanently removed.
  */
 export const deleteQuiz = onCall(async (request) => { // ⭐ V2 callable: 'request' object contains data and context
   // 1. Authentication Check
@@ -20,7 +21,8 @@ export const deleteQuiz = onCall(async (request) => { // ⭐ V2 callable: 'reque
 
   // 2. Authorization Check: Is the user an administrator?
   // request.auth.token contains user claims
-  if (!request.auth.token || !request.auth.token.admin) {
+  // Ensure 'admin' claim exists and is true
+  if (!request.auth.token || request.auth.token.admin !== true) { // Explicitly check for 'true'
     throw new HttpsError('permission-denied', 'You do not have permission to delete quizzes. Only administrators can perform this action.');
   }
 
@@ -43,23 +45,27 @@ export const deleteQuiz = onCall(async (request) => { // ⭐ V2 callable: 'reque
     const quizData = quizDoc.data();
 
     // 5. Authorization Check: Is the quiz 'global'?
+    // Note: The rule for this will also be enforced by Firestore rules.
     if (quizData && quizData.visibility !== 'global') {
       throw new HttpsError('permission-denied', `You can only delete global quizzes. Quiz ${quizId} is not global.`);
     }
 
-    // 6. Perform Deletion
-    await quizRef.delete();
+    // ⭐ 6. Perform Soft Deletion: Update 'status' field instead of hard deleting ⭐
+    await quizRef.update({ status: 'deleted' });
 
     // ⭐ V2 logging uses the imported logger ⭐
-    logger.info(`Admin ${request.auth.uid} successfully deleted global quiz ${quizId}.`);
+    logger.info(`Admin ${request.auth.uid} successfully soft-deleted global quiz ${quizId}.`);
 
-    return { success: true, message: `Quiz ${quizId} successfully deleted.` };
+    return { success: true, message: `Quiz ${quizId} successfully marked as deleted.` };
 
-  } catch (error: any) {
+  } catch (error: unknown) { // ⭐ FIX: Changed 'any' to 'unknown' for safer error handling ⭐
     if (error instanceof HttpsError) {
       throw error;
     }
-    logger.error(`Error deleting quiz ${quizId} by admin ${request.auth.uid}:`, error); // ⭐ V2 logging
-    throw new HttpsError('internal', `Failed to delete quiz: ${error.message}`);
+    // For other unexpected errors, log and re-throw as an internal error
+    logger.error(`Error soft-deleting quiz ${quizId} by admin ${request.auth.uid}:`, error); // ⭐ V2 logging
+    // Ensure that error.message is accessed safely as 'error' is unknown
+    const errorMessage = (error instanceof Error) ? error.message : 'An unknown error occurred.';
+    throw new HttpsError('internal', `Failed to soft-delete quiz: ${errorMessage}`);
   }
 });

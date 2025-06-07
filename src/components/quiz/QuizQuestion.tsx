@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
 import { CheckCircle, XCircle } from 'lucide-react';
-import { QuizQuestion as QuizQuestionType } from '../../types'; // Path is correct
+import { QuizQuestion as QuizQuestionType } from '../../types';
 import Button from '../ui/Button';
 
 interface QuizQuestionProps {
   question: QuizQuestionType;
-  // CHANGED: onAnswer now only takes the selectedOption (string)
   onAnswer: (selectedOption: string) => void;
   questionNumber: number;
   totalQuestions: number;
@@ -17,37 +16,46 @@ const QuizQuestion: React.FC<QuizQuestionProps> = ({
   questionNumber,
   totalQuestions,
 }) => {
-  // selectedAnswer will now always be a string (or null), consistent with backend
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [showFeedback, setShowFeedback] = useState(false);
 
-  const handleAnswerSelect = (answer: string) => { // CHANGED: parameter type to string
+  const handleAnswerSelect = (answer: string) => {
     if (showFeedback) return;
 
     setSelectedAnswer(answer);
     setShowFeedback(true);
 
-    // REMOVED: isCorrect calculation is no longer done here
-
-    // Allow user to see feedback before moving to next question
     setTimeout(() => {
-      // CHANGED: Only pass the selected answer to onAnswer
       onAnswer(answer);
       setSelectedAnswer(null);
       setShowFeedback(false);
     }, 1500);
   };
 
-  // Helper to determine if an option is the correct one for display feedback
-  const isCorrectAnswer = (option: string) => { // CHANGED: parameter type to string
-    // Ensure comparison is string to string, especially for true/false questions
-    return showFeedback && option === String(question.correctAnswer);
+  // ⭐ FIX: Updated isCorrectAnswer to handle both question types ⭐
+  const isCorrectAnswer = (option: string) => {
+    if (!showFeedback) return false;
+
+    if (question.type === 'multiple_choice') {
+      // Ensure question.options and question.correctOptionIndex exist for multiple_choice
+      return option === question.options[question.correctOptionIndex];
+    } else if (question.type === 'true_false') {
+      return option === question.correctAnswer;
+    }
+    return false; // Should not happen
   };
 
-  // Helper to determine if an option is the incorrect one the user picked
-  const isIncorrectAnswer = (option: string) => { // CHANGED: parameter type to string
-    // Ensure comparison is string to string
-    return showFeedback && selectedAnswer === option && option !== String(question.correctAnswer);
+  // ⭐ FIX: Updated isIncorrectAnswer to handle both question types ⭐
+  const isIncorrectAnswer = (option: string) => {
+    if (!showFeedback || selectedAnswer !== option) return false;
+
+    if (question.type === 'multiple_choice') {
+      // Ensure question.options and question.correctOptionIndex exist for multiple_choice
+      return option !== question.options[question.correctOptionIndex];
+    } else if (question.type === 'true_false') {
+      return option !== question.correctAnswer;
+    }
+    return false; // Should not happen
   };
 
   return (
@@ -71,11 +79,12 @@ const QuizQuestion: React.FC<QuizQuestionProps> = ({
 
       <div className="bg-white shadow-md rounded-lg p-6 mb-6">
         <h2 className="text-xl font-semibold text-slate-800 mb-6">
-          {question.text}
+          {question.questionText} {/* Use questionText here */}
         </h2>
 
         <div className="space-y-3">
-          {question.type === 'multiple_choice' && question.options ? (
+          {/* ⭐ FIX: Conditional rendering based on question.type ⭐ */}
+          {question.type === 'multiple_choice' ? (
             question.options.map((option, index) => (
               <button
                 key={index}
@@ -104,9 +113,9 @@ const QuizQuestion: React.FC<QuizQuestionProps> = ({
               </button>
             ))
           ) : (
+            // Handles true/false questions
             <div className="flex space-x-4">
               <Button
-                // CHANGED: Always pass 'True' as a string for consistency
                 onClick={() => handleAnswerSelect('True')}
                 className={`flex-1 ${
                   isCorrectAnswer('True')
@@ -126,7 +135,6 @@ const QuizQuestion: React.FC<QuizQuestionProps> = ({
               </Button>
 
               <Button
-                // CHANGED: Always pass 'False' as a string for consistency
                 onClick={() => handleAnswerSelect('False')}
                 className={`flex-1 ${
                   isCorrectAnswer('False')

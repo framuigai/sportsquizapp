@@ -22,13 +22,22 @@ export interface QuizConfig {
   visibility?: 'global' | 'private'; // ✅ ADDED: For frontend forms to suggest visibility
 }
 
-export type QuizQuestion = {
-  id: string;
-  text: string;
-  type: 'multiple_choice' | 'true_false';
-  options?: string[];
-  correctAnswer: string;
-};
+// ⭐ IMPORTANT FIX: Use Discriminated Unions for QuizQuestion ⭐
+export type QuizQuestion =
+  | {
+      id: string;
+      questionText: string; // Changed from 'text' to 'questionText' for consistency with frontend
+      type: 'multiple_choice';
+      options: string[]; // ⭐ REQUIRED for multiple_choice ⭐
+      correctOptionIndex: number; // ⭐ REQUIRED for multiple_choice ⭐
+    }
+  | {
+      id: string;
+      questionText: string; // Changed from 'text' to 'questionText' for consistency with frontend
+      type: 'true_false';
+      correctAnswer: 'True' | 'False'; // Assuming correct answer is 'True' or 'False' for true/false questions
+    };
+
 
 // --- MODIFICATION 2: Add quizType to the Quiz interface ---
 export type Quiz = {
@@ -45,6 +54,7 @@ export type Quiz = {
   createdBy: string;
   visibility: 'global' | 'private';
   quizType: 'multiple_choice' | 'true_false'; // ✅ ADDED: Crucial for displaying saved quizzes correctly
+  status: 'active' | 'deleted'; // ⭐ NEW: Added status field for soft delete ⭐
 };
 
 export type QuizAttempt = {
@@ -72,6 +82,7 @@ export type QuizFilter = {
   difficulty?: 'easy' | 'medium' | 'hard';
   visibility?: 'global' | 'private';
   createdBy?: string;
+  status?: 'active' | 'deleted' | 'all'; // ⭐ NEW: Added status filter option ⭐
 };
 
 export type Category = {

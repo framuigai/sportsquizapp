@@ -1,37 +1,58 @@
+// firestore.rules
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Helper function to check if the user is an admin
+    function isAdmin() {
+      return request.auth.token.admin == true;
+    }
+
     // Rules for the 'quizzes' collection
     match /quizzes/{quizId} {
-      // Allow all authenticated users to read quizzes
-      // Frontend fetchQuizzes will apply specific filters (global, createdBy)
-      allow read: if request.auth != null;
+      // Allow authenticated users to read quizzes that are 'active' and 'global'
+      // OR if they are the creator of a 'private' active quiz
+      allow read: if request.auth != null && (
+        (resource.data.status == 'active' && resource.data.visibility == 'global') ||
+        (resource.data.status == 'active' && resource.data.createdBy == request.auth.uid && resource.data.visibility == 'private')
+      );
+
+      // Allow admins to read ALL quizzes (including deleted ones and private ones not created by them)
+      allow read: if request.auth != null && isAdmin();
 
       // Allow authenticated users to create new quizzes
-      allow create: if request.auth != null;
+      // New quizzes must be 'active' by default. 'visibility' can be 'global' or 'private'.
+      // 'createdBy' must be the current user's UID.
+      allow create: if request.auth != null &&
+                      request.resource.data.status == 'active' &&
+                      request.resource.data.createdBy == request.auth.uid &&
+                      (request.resource.data.visibility == 'global' || request.resource.data.visibility == 'private');
+
 
       // Allow updates:
-      // A user can update their own created quiz.
-      // An admin can update any quiz.
-      allow update: if request.auth != null && (request.auth.uid == resource.data.createdBy || request.auth.token.admin == true);
+      // 1. Admins can update ANY field of ANY quiz (including status, visibility).
+      allow update: if request.auth != null && isAdmin();
 
-      // CRITICAL: Allow deletion only if:
-      // 1. The user is authenticated AND has the 'admin' custom claim.
-      // 2. AND the quiz being deleted has 'visibility' set to 'global'.
-      // This specifically protects private quizzes from admin deletion via rules,
-      // and enforces that non-admins cannot delete.
-      allow delete: if request.auth != null &&
-                      request.auth.token.admin == true &&
-                      resource.data.visibility == 'global';
+      // 2. A quiz creator can update their OWN quiz (title, category, questions, etc.),
+      //    BUT they cannot change its status to 'deleted' or its visibility to 'global' if it's currently private.
+      //    They also cannot update if the quiz is already 'deleted'.
+      allow update: if request.auth != null &&
+                      request.auth.uid == resource.data.createdBy &&
+                      resource.data.status == 'active' && // Must be active to update
+                      request.resource.data.status == 'active' && // Cannot change status to 'deleted'
+                      request.resource.data.visibility == resource.data.visibility; // Cannot change visibility (only admin can)
+
+
+      // CRITICAL: Prevent hard deletion via rules. Soft delete is handled by 'update' rules.
+      allow delete: if false;
     }
 
     // Rules for the 'quizAttempts' collection
     match /quizAttempts/{attemptId} {
       // Authenticated users can create (write) their own quiz attempts
-      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId; // Corrected field name from 'uid' to 'userId' for consistency
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
       // Authenticated users can read *only their own* quiz attempts
-      allow read: if request.auth != null && request.auth.uid == resource.data.userId; // Corrected field name
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
       // Quiz attempts are typically immutable records, so disallow updates and deletes
       allow update, delete: false;
     }
@@ -42,3 +63,8 @@ service cloud.firestore {
     }
   }
 }
+
+
+
+
+

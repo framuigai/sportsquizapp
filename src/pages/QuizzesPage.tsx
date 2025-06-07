@@ -1,36 +1,104 @@
 // src/pages/QuizzesPage.tsx
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, Loader2, BookOpenText } from 'lucide-react'; // Ensure Loader2 and BookOpenText are imported
+import { AlertCircle, Loader2, BookOpenText, Download } from 'lucide-react';
 import QuizCard from '../components/quiz/QuizCard';
-import QuizFilter from '../components/quiz/QuizFilter'; // This component will need to respect new props
-import Alert from '../components/ui/Alert'; // Assuming you have an Alert component for error display
-import { useQuizStore } from '../store/quizStore';
-import { QuizFilter as QuizFilterType } from '../types'; // Renamed to avoid conflict with component name
+import QuizFilter from '../components/quiz/QuizFilter';
+import Alert from '../components/ui/Alert';
+import { useQuizStore } from '../store/quizStore'; // Import useQuizStore
+import { QuizFilter as QuizFilterType, Quiz } from '../types'; // Import Quiz type
+import { useAuthStore } from '../store/authStore';
+// Removed deleteQuizCallable import as it's no longer used for soft delete here
+// import { deleteQuizCallable } from '../firebase/functions';
 
 const QuizzesPage: React.FC = () => {
-  const { quizzes, loading, error, fetchQuizzes } = useQuizStore();
-  // State for additional filters (e.g., category, difficulty) that apply to global quizzes
+  // Destructure updateQuizStatus from the store
+  const { quizzes, loading, error, fetchQuizzes, updateQuizStatus } = useQuizStore();
+  const { user } = useAuthStore();
+  const isAdmin = user?.isAdmin || false;
+
   const [filter, setFilter] = useState<QuizFilterType>({});
+  const [updateLoading, setUpdateLoading] = useState<string | null>(null); // For loading state on actions
 
-  // Explanation 1: Initial Fetch for Global Quizzes
-  // When the component mounts, or `fetchQuizzes` changes (though it's stable from Zustand),
-  // we fetch quizzes. Crucially, we always include `visibility: 'global'` in the filter.
-  // This makes `QuizzesPage` exclusively about global quizzes.
   useEffect(() => {
-    // We merge the current filter state with `visibility: 'global'`.
-    // This allows other filters (category, difficulty) to still be applied
-    // while ensuring only global quizzes are ever fetched.
-    fetchQuizzes({ ...filter, visibility: 'global' });
-  }, [fetchQuizzes]); // Depend on fetchQuizzes only, as filter is handled by handleFilterChange
+    // For regular users, only fetch active and global quizzes
+    fetchQuizzes({ ...filter, visibility: 'global', status: 'active' });
+  }, [fetchQuizzes, filter]); // Added filter to dependency array
 
-  // Explanation 2: Handling Filter Changes for Global Quizzes
-  // This function is passed to the QuizFilter component.
-  // When the user applies filters, this function is called with the `newFilter`.
-  // Again, we ensure `visibility: 'global'` is *always* part of the fetch request.
   const handleFilterChange = (newFilter: QuizFilterType) => {
-    setFilter(newFilter); // Update the local filter state
-    // Fetch quizzes with the new filters, explicitly keeping visibility as 'global'.
-    fetchQuizzes({ ...newFilter, visibility: 'global' });
+    setFilter(newFilter);
+    fetchQuizzes({ ...newFilter, visibility: 'global', status: 'active' });
+  };
+
+  // ⭐ MODIFIED: Use updateQuizStatus for soft delete ⭐
+  const handleToggleQuizStatus = async (quiz: Quiz) => {
+    // In QuizzesPage, a non-admin might only see an "Archive" option if it's their own quiz,
+    // or if the action is to mark as deleted from a public list (only for admins).
+    // For non-admins on QuizzesPage, the soft delete action might not even be available.
+    // If it's an admin on QuizzesPage, they can use this to mark global quizzes as deleted.
+    if (!isAdmin) {
+      alert("You don't have permission to perform this action.");
+      return;
+    }
+
+    const newStatus = quiz.status === 'deleted' ? 'active' : 'deleted';
+    const action = newStatus === 'active' ? 'restore' : 'mark as deleted';
+
+    if (!window.confirm(`Are you sure you want to ${action} this quiz "${quiz.title}"?`)) {
+      return;
+    }
+
+    setUpdateLoading(quiz.id);
+    try {
+      await updateQuizStatus(quiz.id, newStatus);
+      alert(`Quiz "${quiz.title}" successfully ${action}d.`);
+      // Re-fetch to ensure the list is accurate based on the 'active' status filter for non-admins
+      fetchQuizzes({ ...filter, visibility: 'global', status: 'active' });
+    } catch (err: any) {
+      console.error(`Error ${action}ing quiz:`, err);
+      let errorMessage = `Failed to ${action} quiz: ${err.message || 'Unknown error'}`;
+      alert(errorMessage);
+    } finally {
+      setUpdateLoading(null);
+    }
+  };
+
+  const handleExportQuiz = (quizId: string) => {
+    const quizToExport = quizzes.find(q => q.id === quizId);
+    if (!quizToExport) {
+      alert('Quiz not found for export.');
+      return;
+    }
+
+    let exportContent = `--- Quiz: ${quizToExport.title} ---\n`;
+    exportContent += `Category: ${quizToExport.category}\n`;
+    exportContent += `Difficulty: ${quizToExport.difficulty}\n`;
+    if (quizToExport.team) exportContent += `Team: ${quizToExport.team}\n`;
+    if (quizToExport.country) exportContent += `Country: ${quizToExport.country}\n`;
+    exportContent += `\n`;
+
+    quizToExport.questions.forEach((question, qIndex) => {
+      exportContent += `Question ${qIndex + 1}: ${question.questionText}\n`;
+
+      if (question.type === 'multiple_choice') {
+        question.options.forEach((option, oIndex) => {
+          exportContent += `  ${String.fromCharCode(65 + oIndex)}. ${option}\n`;
+        });
+        const correctOptionText = question.options[question.correctOptionIndex];
+        exportContent += `  Correct Answer: ${String.fromCharCode(65 + question.correctOptionIndex)}. ${correctOptionText}\n\n`;
+      } else if (question.type === 'true_false') {
+        exportContent += `  Correct Answer: ${question.correctAnswer}\n\n`;
+      }
+    });
+
+    const blob = new Blob([exportContent], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${quizToExport.title.replace(/[^a-z0-9]/gi, '_')}_quiz.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -41,28 +109,18 @@ const QuizzesPage: React.FC = () => {
             <BookOpenText className="inline-block h-8 w-8 text-sky-500 mr-2 align-middle" />
             Global Quizzes
           </h1>
-          {/* Explanation 3: Updated Descriptive Text */}
-          {/* The description now clearly states that these are quizzes for everyone. */}
           <p className="text-slate-600 mt-2">
             Explore a wide range of quizzes generated by administrators for everyone to enjoy.
           </p>
         </div>
       </div>
 
-      {/* Explanation 4: Configuring QuizFilter for Global View */}
-      {/* We pass props `hideVisibilityFilter` and `hideCreatedByFilter` as `true`.
-          This signals to the `QuizFilter` component that it should *not* display
-          options to filter by visibility (as this page is fixed to 'global')
-          or by creator (as global quizzes aren't filtered by individual creator).
-          This is key to "removing generation UI" by adapting the filter component.
-          You'll need to ensure your `QuizFilter` component handles these props. */}
       <QuizFilter
         onFilterChange={handleFilterChange}
         hideVisibilityFilter={true}
         hideCreatedByFilter={true}
       />
 
-      {/* Explanation 5: Displaying Loading, Error, or No Quizzes */}
       {error && (
         <Alert
           type="error"
@@ -86,7 +144,16 @@ const QuizzesPage: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {quizzes.map((quiz) => (
-            <QuizCard key={quiz.id} quiz={quiz} />
+            <QuizCard
+              key={quiz.id}
+              quiz={quiz}
+              isAdmin={isAdmin}
+              // Only provide onToggleStatus if the user is an admin
+              onToggleStatus={isAdmin ? handleToggleQuizStatus : undefined}
+              onExport={handleExportQuiz}
+              isSoftDeleted={quiz.status === 'deleted'}
+              updateLoading={updateLoading === quiz.id}
+            />
           ))}
         </div>
       )}

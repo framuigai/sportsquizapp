@@ -3,52 +3,68 @@ import React, { useEffect } from 'react';
 import { useQuizStore } from '../store/quizStore';
 import { useAuthStore } from '../store/authStore';
 import { useNavigate } from 'react-router-dom';
-import { BookOpenText, Loader2, Frown, Info } from 'lucide-react';
+import { BookOpenText, Loader2, Frown, Info, Download } from 'lucide-react';
 import QuizCard from '../components/quiz/QuizCard';
-import Alert from '../components/ui/Alert'; // Assuming you have an Alert component
+import Alert from '../components/ui/Alert';
+import Button from '../components/ui/Button';
 
 const MyQuizzesPage: React.FC = () => {
   const navigate = useNavigate();
-  // Destructure user and isInitialized from useAuthStore to manage authentication state
   const { user, isInitialized } = useAuthStore();
-  // Destructure relevant state and actions from useQuizStore
   const { quizzes, loading, error, fetchQuizzes } = useQuizStore();
 
   useEffect(() => {
-    // Explanation 1: Wait for Auth Initialization
-    // It's crucial to wait until `isInitialized` is true to ensure Firebase Auth
-    // has completed its initial check (whether a user is logged in or not).
     if (!isInitialized) {
       return;
     }
 
-    // Explanation 2: Redirect if Not Authenticated
-    // If authentication is initialized and there's no `user`,
-    // it means the user is not logged in. Redirect them to the login page.
     if (!user) {
       navigate('/login');
-      return; // Stop further execution of this effect
+      return;
     }
 
-    // Explanation 3: Fetch User-Specific Private Quizzes
-    // If the user is logged in (`user` is present), fetch their quizzes.
-    // We use the `fetchQuizzes` action from `useQuizStore` and apply filters:
-    // - `createdBy: user.id`: Ensures we only get quizzes created by the current user.
-    // - `visibility: 'private'`: Ensures we only get their *private* quizzes.
-    // This perfectly aligns with the purpose of "My Quizzes" page and Step 7's enhancements.
-    fetchQuizzes({ createdBy: user.id, visibility: 'private' });
-
-    // Dependencies for useEffect:
-    // - `user`: Re-run if the user object changes (e.g., login/logout).
-    // - `isInitialized`: Re-run once authentication state is known.
-    // - `fetchQuizzes`: Dependency for the `fetchQuizzes` function (Zustand actions are stable, but good practice).
-    // - `Maps`: Dependency for the `Maps` function.
+    // ⭐ MODIFIED: Fetch active private quizzes created by the user ⭐
+    fetchQuizzes({ createdBy: user.id, visibility: 'private', status: 'active' });
   }, [user, isInitialized, fetchQuizzes, navigate]);
 
-  // --- Render Logic ---
+  const handleExportQuiz = (quizId: string) => {
+    const quizToExport = quizzes.find(q => q.id === quizId);
+    if (!quizToExport) {
+      alert('Quiz not found for export.');
+      return;
+    }
 
-  // Explanation 4: Initial Loading State for Auth
-  // Show a full-page loading spinner while Firebase Auth is initializing.
+    let exportContent = `--- Quiz: ${quizToExport.title} ---\n`;
+    exportContent += `Category: ${quizToExport.category}\n`;
+    exportContent += `Difficulty: ${quizToExport.difficulty}\n`;
+    if (quizToExport.team) exportContent += `Team: ${quizToExport.team}\n`;
+    if (quizToExport.country) exportContent += `Country: ${quizToExport.country}\n`;
+    exportContent += `\n`;
+
+    quizToExport.questions.forEach((question, qIndex) => {
+      exportContent += `Question ${qIndex + 1}: ${question.questionText}\n`;
+      if (question.type === 'multiple_choice') {
+        question.options.forEach((option, oIndex) => {
+          exportContent += `  ${String.fromCharCode(65 + oIndex)}. ${option}\n`;
+        });
+        const correctOptionText = question.options[question.correctOptionIndex];
+        exportContent += `  Correct Answer: ${String.fromCharCode(65 + question.correctOptionIndex)}. ${correctOptionText}\n\n`;
+      } else if (question.type === 'true_false') {
+        exportContent += `  Correct Answer: ${question.correctAnswer}\n\n`;
+      }
+    });
+
+    const blob = new Blob([exportContent], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${quizToExport.title.replace(/[^a-z0-9]/gi, '_')}_quiz.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   if (!isInitialized) {
     return (
       <div className="flex justify-center items-center min-h-[calc(100vh-64px)]">
@@ -57,10 +73,6 @@ const MyQuizzesPage: React.FC = () => {
       </div>
     );
   }
-
-  // Note: The `if (!user)` check is handled by the `useEffect` redirect.
-  // This means if `isInitialized` is true and `user` is null, the user will be
-  // redirected, so the code below this won't execute for unauthenticated users.
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -73,8 +85,6 @@ const MyQuizzesPage: React.FC = () => {
         until an admin makes them global for everyone to see.
       </p>
 
-      {/* Explanation 5: Displaying Loading, Error, or No Quizzes */}
-      {/* 5a. Loading state for quiz fetching */}
       {loading && (
         <div className="flex justify-center items-center py-10">
           <Loader2 className="h-8 w-8 animate-spin text-sky-500" />
@@ -82,12 +92,10 @@ const MyQuizzesPage: React.FC = () => {
         </div>
       )}
 
-      {/* 5b. Error state for quiz fetching */}
       {error && (
         <Alert type="error" message={error} className="mt-4" />
       )}
 
-      {/* 5c. Message if no quizzes are found after loading and no error */}
       {!loading && !error && quizzes.length === 0 && (
         <div className="text-center py-10 text-slate-500">
           <Frown className="h-12 w-12 mx-auto mb-4 text-slate-400" />
@@ -96,11 +104,14 @@ const MyQuizzesPage: React.FC = () => {
         </div>
       )}
 
-      {/* 5d. Display quizzes if successfully loaded and available */}
       {!loading && !error && quizzes.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
           {quizzes.map((quiz) => (
-            <QuizCard key={quiz.id} quiz={quiz} />
+            <QuizCard
+              key={quiz.id}
+              quiz={quiz}
+              onExport={() => handleExportQuiz(quiz.id)}
+            />
           ))}
         </div>
       )}

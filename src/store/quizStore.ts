@@ -10,14 +10,14 @@ import {
   orderBy,
   limit,
   doc,
-  setDoc,
+  setDoc, // Keep setDoc for updates
   addDoc,
   Timestamp,
   DocumentData,
-  Query, // ⭐ Import Query type for better TypeScript inference
+  Query,
 } from 'firebase/firestore';
 import { Quiz, QuizAttempt, QuizFilter, QuizConfig } from '../types';
-import { db, functions } from '../firebase/config';
+import { db, functions } from '../firebase/config'; // 'db' is correctly imported here
 import { httpsCallable } from 'firebase/functions';
 import { useAuthStore } from './authStore';
 
@@ -59,6 +59,8 @@ interface QuizState {
   saveQuizAttempt: (attempt: Omit<QuizAttempt, 'id'>) => Promise<string>;
   fetchQuizzes: (filter?: QuizFilter) => Promise<void>;
   updateQuizVisibility: (quizId: string, newVisibility: 'global' | 'private') => Promise<void>;
+  // ⭐ NEW: Action to update quiz status ⭐
+  updateQuizStatus: (quizId: string, newStatus: 'active' | 'deleted') => Promise<void>;
 }
 
 export const useQuizStore = create<QuizState>((set, get) => ({
@@ -121,25 +123,22 @@ export const useQuizStore = create<QuizState>((set, get) => ({
 
   saveQuiz: async (quiz: Quiz) => {
     try {
-      // Get the current user's ID to set as createdBy if it's a new quiz
       const auth = getAuth();
       const currentUser = auth.currentUser;
-      const createdBy = currentUser?.uid || 'anonymous'; // Fallback to anonymous if no user
+      const createdBy = currentUser?.uid || 'anonymous';
 
       const quizToSave = { ...quiz };
 
       if (!quizToSave.id) {
-        // New quiz: add createdAt and createdBy
-        quizToSave.createdAt = Timestamp.now().toMillis(); // Store as millis
+        quizToSave.createdAt = Timestamp.now().toMillis();
         quizToSave.createdBy = createdBy;
+        quizToSave.status = 'active';
         const docRef = await addDoc(collection(db, 'quizzes'), quizToSave);
         quizToSave.id = docRef.id;
       } else {
-        // Existing quiz: only update if necessary, but createdBy/createdAt usually immutable
-        await setDoc(doc(db, 'quizzes', quizToSave.id), quizToSave, { merge: true }); // Use merge to avoid overwriting
+        await setDoc(doc(db, 'quizzes', quizToSave.id), quizToSave, { merge: true });
       }
-      // Re-fetch quizzes after saving to update the list, apply current filters
-      await get().fetchQuizzes({}); // Re-fetch all or apply specific filters if current context allows
+      await get().fetchQuizzes({});
     } catch (error) {
       console.error('Error saving quiz:', error);
       set({ error: 'Error saving quiz' });
@@ -157,12 +156,22 @@ export const useQuizStore = create<QuizState>((set, get) => ({
           ? rawData.createdAt.toMillis()
           : (typeof rawData.createdAt === 'number' ? rawData.createdAt : Date.now());
 
+        const fetchedQuizData = {
+          id: quizDoc.id,
+          ...(rawData as Omit<Quiz, 'id' | 'createdAt' | 'status'>),
+          createdAt: createdAtMillis,
+          status: (rawData as Quiz).status || 'active',
+        } as Quiz;
+
+        const authState = useAuthStore.getState();
+        const isAdmin = authState.user?.isAdmin || false;
+        if (fetchedQuizData.status === 'deleted' && !isAdmin) {
+          set({ error: 'Quiz not found or is deleted', loading: false, currentQuiz: null });
+          return;
+        }
+
         set({
-          currentQuiz: {
-            id: quizDoc.id,
-            ...(rawData as Omit<Quiz, 'id' | 'createdAt'>),
-            createdAt: createdAtMillis,
-          } as Quiz,
+          currentQuiz: fetchedQuizData,
           loading: false,
         });
       } else {
@@ -228,10 +237,8 @@ export const useQuizStore = create<QuizState>((set, get) => ({
   fetchQuizzes: async (filter: QuizFilter = {}) => {
     set({ loading: true, error: null });
     try {
-      // Start with a reference to the quizzes collection
       let quizzesQuery: Query<DocumentData> = collection(db, 'quizzes');
 
-      // Apply filters based on the `filter` object
       if (filter.category) {
         quizzesQuery = query(quizzesQuery, where('category', '==', filter.category));
       }
@@ -248,13 +255,15 @@ export const useQuizStore = create<QuizState>((set, get) => ({
         quizzesQuery = query(quizzesQuery, where('country', '==', filter.country));
       }
       if (filter.title) {
-        // For partial title matches, you might need more advanced techniques
-        // like Algolia or a specific cloud function.
-        // For exact match, this is fine:
         quizzesQuery = query(quizzesQuery, where('title', '==', filter.title));
       }
 
-      // ⭐ Core changes for Step 7: Apply visibility and createdBy filters ⭐
+      if (filter.status && filter.status !== 'all') {
+        quizzesQuery = query(quizzesQuery, where('status', '==', filter.status));
+      } else if (!filter.status) {
+        quizzesQuery = query(quizzesQuery, where('status', '==', 'active'));
+      }
+
       if (filter.visibility) {
         quizzesQuery = query(quizzesQuery, where('visibility', '==', filter.visibility));
       }
@@ -262,9 +271,8 @@ export const useQuizStore = create<QuizState>((set, get) => ({
         quizzesQuery = query(quizzesQuery, where('createdBy', '==', filter.createdBy));
       }
 
-      // Always order by createdAt and limit the results
       quizzesQuery = query(quizzesQuery, orderBy('createdAt', 'desc'));
-      quizzesQuery = query(quizzesQuery, limit(20)); // Limit to a reasonable number of quizzes
+      quizzesQuery = query(quizzesQuery, limit(20));
 
       const querySnapshot = await getDocs(quizzesQuery);
       const fetchedQuizzes = querySnapshot.docs.map((doc) => {
@@ -276,8 +284,9 @@ export const useQuizStore = create<QuizState>((set, get) => ({
 
         return {
           id: doc.id,
-          ...(rawData as Omit<Quiz, 'id' | 'createdAt'>),
+          ...(rawData as Omit<Quiz, 'id' | 'createdAt' | 'status'>),
           createdAt: createdAtMillis,
+          status: (rawData as Quiz).status || 'active',
         } as Quiz;
       });
       set({ quizzes: fetchedQuizzes, loading: false });
@@ -316,6 +325,40 @@ export const useQuizStore = create<QuizState>((set, get) => ({
       const errorMsg = err.message || 'Failed to update quiz visibility.';
       set({ error: errorMsg });
       console.error('Error updating quiz visibility:', err);
+      throw err;
+    }
+  },
+
+  // ⭐ NEW: Implementation for updateQuizStatus ⭐
+  updateQuizStatus: async (quizId: string, newStatus: 'active' | 'deleted') => {
+    set({ error: null }); // Clear any previous errors
+
+    try {
+      const auth = getAuth();
+      if (!auth.currentUser) {
+        throw new Error('User not authenticated.');
+      }
+
+      const { user: authUser } = useAuthStore.getState();
+      if (!authUser?.isAdmin) {
+        throw new Error('Unauthorized: Only administrators can change quiz status.');
+      }
+
+      const quizRef = doc(db, 'quizzes', quizId);
+      await setDoc(quizRef, { status: newStatus }, { merge: true });
+
+      // Update the state immediately for responsiveness
+      set((state) => ({
+        quizzes: state.quizzes.map((quiz) =>
+          quiz.id === quizId ? { ...quiz, status: newStatus } : quiz
+        ),
+      }));
+
+      console.log(`Quiz ${quizId} status updated to ${newStatus}`);
+    } catch (err: any) {
+      const errorMsg = err.message || `Failed to update quiz status to ${newStatus}.`;
+      set({ error: errorMsg });
+      console.error('Error updating quiz status:', err);
       throw err;
     }
   },
