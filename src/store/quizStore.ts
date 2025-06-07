@@ -132,18 +132,22 @@ export const useQuizStore = create<QuizState>((set, get) => ({
       const createdBy = currentUser?.uid || 'anonymous';
 
       // Start with the quiz data, then adjust for Firestore storage
-      // Use 'unknown' as an intermediate to allow casting properties safely
+      // Ensure createdAt is a Timestamp for Firestore saving
       let quizDataForFirestore: FirestoreQuizDocument = {
-        ...(quiz as Omit<Quiz, 'createdAt'>), // Cast quiz to omit 'createdAt'
-        // If quiz.createdAt is a number, convert it to Timestamp. Otherwise, it's already a Timestamp or undefined.
-        createdAt: typeof quiz.createdAt === 'number' ? Timestamp.fromMillis(quiz.createdAt) : quiz.createdAt as Timestamp,
+        ...(quiz as Omit<Quiz, 'createdAt'>), // Spread all Quiz properties except for createdAt
+        // Convert the incoming quiz.createdAt (which is a number) to a Timestamp for Firestore.
+        // If it's not a number (e.g., undefined for a brand new quiz), it will be handled below.
+        createdAt: typeof quiz.createdAt === 'number'
+          ? Timestamp.fromMillis(quiz.createdAt)
+          : undefined, // Explicitly set to undefined if not a number
       } as FirestoreQuizDocument;
 
       if (!quizDataForFirestore.id) {
         // This block handles new quizzes being saved for the first time
-        quizDataForFirestore.createdAt = Timestamp.now(); // Store as Timestamp directly
+        // Always set createdAt to Timestamp.now() for new quizzes
+        quizDataForFirestore.createdAt = Timestamp.now();
         quizDataForFirestore.createdBy = createdBy;
-        quizDataForFirestore.status = 'active'; // Fix: Ensure new quizzes are saved as 'active'
+        quizDataForFirestore.status = 'active'; // Ensure new quizzes are saved as 'active'
 
         if (configUsedToGenerate) {
           quizDataForFirestore.createdFromQuizConfig = configUsedToGenerate;
@@ -155,11 +159,16 @@ export const useQuizStore = create<QuizState>((set, get) => ({
         quizDataForFirestore.id = docRef.id;
 
         // Optimistic update for new quizzes: Convert Timestamp to millis for client state
+        // Safely get milliseconds from createdAt, providing a fallback
+        const createdAtForState = quizDataForFirestore.createdAt instanceof Timestamp
+          ? quizDataForFirestore.createdAt.toMillis()
+          : Date.now(); // Fallback if for some reason it's not a Timestamp (shouldn't happen here)
+
         const quizForState: Quiz = {
-          ...(quizDataForFirestore as Omit<FirestoreQuizDocument, 'createdAt'>), // Cast without createdAt
-          id: quizDataForFirestore.id!, // Assumed to be set after addDoc
-          createdAt: (quizDataForFirestore.createdAt as Timestamp).toMillis(),
-        } as Quiz; // Final cast to Quiz
+          ...(quizDataForFirestore as Omit<FirestoreQuizDocument, 'createdAt'>),
+          id: quizDataForFirestore.id!,
+          createdAt: createdAtForState,
+        } as Quiz;
 
         set((state) => ({
           quizzes: [
@@ -170,22 +179,27 @@ export const useQuizStore = create<QuizState>((set, get) => ({
         }));
       } else {
         // This block handles updates to existing quizzes
-        // If createdAt is a number (from Quiz interface), convert it to Timestamp for Firestore
+        // Ensure createdAt is a Timestamp if it came in as a number or was missing
         if (typeof quizDataForFirestore.createdAt === 'number') {
           quizDataForFirestore.createdAt = Timestamp.fromMillis(quizDataForFirestore.createdAt);
-        } else if (!('createdAt' in quizDataForFirestore) || quizDataForFirestore.createdAt === undefined) {
-          // If createdAt is missing or undefined, set it to now for consistency
+        } else if (!(quizDataForFirestore.createdAt instanceof Timestamp)) {
+          // If it's not a Timestamp and not a number (e.g., undefined), set it to now
           quizDataForFirestore.createdAt = Timestamp.now();
         }
 
         await setDoc(doc(db, 'quizzes', quizDataForFirestore.id), quizDataForFirestore, { merge: true });
 
         // Optimistic update for existing quizzes: Convert Timestamp to millis for client state
+        // Safely get milliseconds from createdAt, providing a fallback
+        const createdAtForState = quizDataForFirestore.createdAt instanceof Timestamp
+          ? quizDataForFirestore.createdAt.toMillis()
+          : Date.now(); // Fallback
+
         const quizForState: Quiz = {
-          ...(quizDataForFirestore as Omit<FirestoreQuizDocument, 'createdAt'>), // Cast without createdAt
+          ...(quizDataForFirestore as Omit<FirestoreQuizDocument, 'createdAt'>),
           id: quizDataForFirestore.id,
-          createdAt: (quizDataForFirestore.createdAt as Timestamp).toMillis(),
-        } as Quiz; // Final cast to Quiz
+          createdAt: createdAtForState,
+        } as Quiz;
 
         set((state) => ({
           quizzes: state.quizzes.map((q) =>
