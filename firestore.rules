@@ -4,20 +4,34 @@ service cloud.firestore {
 
     // Rules for the 'quizzes' collection
     match /quizzes/{quizId} {
-      // Allow all authenticated users to read quizzes (for now, covers public and user-generated)
+      // Allow all authenticated users to read quizzes
+      // Frontend fetchQuizzes will apply specific filters (global, createdBy)
       allow read: if request.auth != null;
+
       // Allow authenticated users to create new quizzes
       allow create: if request.auth != null;
-      // Only the user who created the quiz can update or delete it
-      allow update, delete: if request.auth != null && request.auth.uid == resource.data.createdBy;
+
+      // Allow updates:
+      // A user can update their own created quiz.
+      // An admin can update any quiz.
+      allow update: if request.auth != null && (request.auth.uid == resource.data.createdBy || request.auth.token.admin == true);
+
+      // CRITICAL: Allow deletion only if:
+      // 1. The user is authenticated AND has the 'admin' custom claim.
+      // 2. AND the quiz being deleted has 'visibility' set to 'global'.
+      // This specifically protects private quizzes from admin deletion via rules,
+      // and enforces that non-admins cannot delete.
+      allow delete: if request.auth != null &&
+                      request.auth.token.admin == true &&
+                      resource.data.visibility == 'global';
     }
 
-    // NEW Rules for the 'userAttempts' collection
-    match /userAttempts/{attemptId} {
+    // Rules for the 'quizAttempts' collection
+    match /quizAttempts/{attemptId} {
       // Authenticated users can create (write) their own quiz attempts
-      allow create: if request.auth != null && request.auth.uid == request.resource.data.uid;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId; // Corrected field name from 'uid' to 'userId' for consistency
       // Authenticated users can read *only their own* quiz attempts
-      allow read: if request.auth != null && request.auth.uid == resource.data.uid;
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId; // Corrected field name
       // Quiz attempts are typically immutable records, so disallow updates and deletes
       allow update, delete: false;
     }

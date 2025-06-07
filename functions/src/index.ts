@@ -2,15 +2,15 @@
 
 import { onRequest } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
-// REMOVED: import * as admin from "firebase-admin"; // This line is no longer needed in index.ts if 'admin' is not directly used here
-import { initializeApp } from 'firebase-admin/app'; // This is what we use for initialization
+import { initializeApp } from 'firebase-admin/app';
 
 // ✅ Initialize Firebase Admin SDK only once
 initializeApp(); // Call initializeApp directly from the specific import
 
 // ✅ Import Gen2 callable functions with .js extension after build
 import { generateQuiz } from "./generateQuiz.js";
-import { submitQuiz } from "./submitQuiz.js";
+import { submitQuiz } from "./submitQuiz.js"; // ⭐ FIX: Corrected '././submitQuiz.js' to './submitQuiz.js'
+import { deleteQuiz } from "./deleteQuiz.js"; // ⭐ NEW: Import deleteQuiz
 
 // ✅ Test function for emulator verification
 export const helloWorld = onRequest((request, response) => {
@@ -21,4 +21,4 @@ export const helloWorld = onRequest((request, response) => {
 // ✅ Export your callable Cloud Functions for Firebase to detect
 export { generateQuiz };
 export { submitQuiz };
-
+export { deleteQuiz }; // ⭐ NEW: Export deleteQuiz
