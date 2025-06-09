@@ -69,7 +69,7 @@ const QuizQuestion: React.FC<QuizQuestionProps> = ({
 
       <div className="bg-white shadow-md rounded-lg p-6 mb-6">
         <h2 className="text-xl font-semibold text-slate-800 mb-6">
-          {question.text} {/* FIX: Changed from question.questionText to question.text */}
+          {question.text}
         </h2>
 
         <div className="space-y-3">
@@ -87,9 +87,9 @@ const QuizQuestion: React.FC<QuizQuestionProps> = ({
                     : 'border-slate-300 hover:border-slate-500'
                   }
                   ${isCorrectAnswer(option) // Apply green for correct answer
-                    ? 'bg-green-100 border-green-500 text-green-800'
+                    ? 'bg-green-500 border-green-500 text-green-800' // Using stronger green
                     : isIncorrectAnswer(option) // Apply red for incorrect selected answer
-                    ? 'bg-red-100 border-red-500 text-red-800'
+                    ? 'bg-red-500 border-red-500 text-red-800' // Using stronger red
                     : showFeedback // Fade unselected options when feedback is shown
                     ? 'opacity-60 bg-white border-gray-200'
                     : 'bg-white' // Default for unselected and no feedback
@@ -115,18 +115,22 @@ const QuizQuestion: React.FC<QuizQuestionProps> = ({
                   key={index}
                   onClick={() => handleAnswerSelect(option)}
                   disabled={showFeedback} // Disable button once an answer is selected and feedback is showing
+                  // Conditional variant/className to ensure feedback colors take precedence
+                  variant={
+                    showFeedback && !isCorrectAnswer(option) && !isIncorrectAnswer(option)
+                      ? 'secondary' // Use a neutral variant for faded unselected T/F
+                      : 'primary' // Default blue variant
+                  }
                   className={`flex-1 transition-all duration-200 ease-in-out
-                    ${selectedAnswer === option && !showFeedback // Style for selected but no feedback yet
-                      ? 'bg-sky-600 hover:bg-sky-700' // Darker blue for true/false buttons
-                      : 'bg-sky-500 hover:bg-sky-600'
-                    }
                     ${isCorrectAnswer(option) // Apply green for correct answer
-                      ? 'bg-green-500 hover:bg-green-600'
+                      ? 'bg-green-500 hover:bg-green-600 text-white' // Explicit colors and text for correctness
                       : isIncorrectAnswer(option) // Apply red for incorrect selected answer
-                      ? 'bg-red-500 hover:bg-red-600'
-                      : showFeedback // Fade unselected options when feedback is shown
-                      ? 'opacity-60 bg-gray-300 hover:bg-gray-400' // Neutral gray for unselected true/false
-                      : 'bg-sky-500' // Default for unselected and no feedback
+                      ? 'bg-red-500 hover:bg-red-600 text-white' // Explicit colors and text for incorrectness
+                      : selectedAnswer === option && !showFeedback // Selected but no feedback yet (initial darker blue)
+                      ? 'bg-sky-600 hover:bg-sky-700 text-white'
+                      : showFeedback && option !== selectedAnswer // Fade unselected options when feedback is shown
+                      ? 'opacity-60 bg-gray-300 hover:bg-gray-400 text-slate-800' // Neutral gray with appropriate text color
+                      : '' // Let Button's variant handle default blue if no feedback
                     }
                   `}
                 >
